@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Quick Charge</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --line:#232833; --fg:#e8ecf3; --dim:#8b95a8;
+    --accent:#ff6b35; --accent-2:#ffab73; --ok:#3ddc84; --warn:#ffb020; --err:#ff5c5c;
+    --r:16px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f5f6f8; --card:#fff; --line:#e3e6ec; --fg:#15181e; --dim:#6b7280; }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{
+    margin:0 auto;
+    padding:16px 14px calc(28px + env(safe-area-inset-bottom));
+    background:var(--bg);color:var(--fg);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Noto Sans CJK SC",sans-serif;
+    max-width:560px;
+  }
+  header{display:flex;align-items:baseline;gap:8px;margin:4px 0 16px}
+  header h1{font-size:20px;margin:0;letter-spacing:.2px}
+  header .ver{font-size:12px;color:var(--dim)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim);margin-left:auto;align-self:center}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center}
+  .grid>div{min-width:0}
+  .grid .k{font-size:11px;color:var(--dim);margin-bottom:3px}
+  .grid .v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+  .grid .s{font-size:10px;color:var(--dim);margin-top:2px;line-height:1.3}
+  .sum{margin-top:11px;padding-top:10px;border-top:1px solid var(--line);
+       font-size:12px;color:var(--dim);line-height:1.55}
+  .sum b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  h2{font-size:13px;color:var(--dim);font-weight:600;margin:0 0 10px;letter-spacing:.3px}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}
+  .row:first-of-type{margin-top:4px}
+  .row label{font-size:14px}
+  .row .val{font-size:14px;font-weight:600;color:var(--accent-2);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;margin:0;accent-color:var(--accent);height:28px;background:transparent}
+  .rw{position:relative;padding:4px 0;border-radius:10px;
+      -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .rw input[type=range]{pointer-events:none}
+  .rw .hitz{position:absolute;left:0;right:0;top:0;bottom:0;z-index:2;touch-action:pan-y}
+  .ticks{position:relative;height:15px;margin:2px 9px 10px;
+         font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .ticks span{position:absolute;top:0;line-height:15px;white-space:nowrap;
+              transform:translateX(-50%)}
+  .ticks span:nth-child(1){left:0}
+  .ticks span:nth-child(2){left:20%}
+  .ticks span:nth-child(3){left:40%}
+  .ticks span:nth-child(4){left:60%}
+  .ticks span:nth-child(5){left:80%}
+  .ticks span:nth-child(6){left:100%}
+  .ticks .on{color:var(--accent-2);font-weight:600}
+  .ticks .na{opacity:.38}
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px}
+  .seg4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+  .seg button,.seg4 button{
+    padding:11px 0;border-radius:11px;border:1px solid var(--line);background:transparent;
+    color:var(--dim);font-size:14px;font-weight:600
+  }
+  .seg button.on,.seg4 button.on{background:rgba(255,107,53,.14);border-color:var(--accent);color:var(--accent)}
+  .tag{float:right;font-size:10px;font-weight:400;color:var(--dim);border:1px solid var(--line);
+    border-radius:6px;padding:1px 6px;letter-spacing:0}
+  .pwr{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;margin:2px 0 8px}
+  .pwr .k{font-size:11px;color:var(--dim);margin-bottom:3px}
+  .pwr .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  #spark{width:100%;height:56px;display:block}
+  .switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim)}
+  .hint{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.6}
+  .switch input{width:18px;height:18px;accent-color:var(--accent)}
+  .acts{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:4px}
+  .acts button{
+    padding:12px 0;border-radius:12px;border:1px solid var(--line);background:transparent;
+    color:var(--fg);font-size:13px;font-weight:600
+  }
+  .acts button:active{background:var(--line)}
+  .acts button.on{background:rgba(255,107,53,.14);border-color:var(--accent);color:var(--accent)}
+  .acts button.wide{grid-column:1/-1}
+  footer{margin-top:18px;text-align:center;font-size:12px;color:var(--dim);line-height:1.9}
+  footer a,footer .lnk{color:var(--accent-2);text-decoration:none}
+  footer .lnk{cursor:pointer}
+  footer .lnk:active{opacity:.55}
+  footer .lk{color:var(--accent-2);text-decoration:underline}
+  footer .lic{margin-top:2px;font-size:11px;opacity:.75}
+  #toast{
+    position:fixed;left:50%;bottom:36px;transform:translate(-50%,20px);
+    background:#000d;color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;
+    opacity:0;pointer-events:none;transition:.22s;max-width:86vw;text-align:center;z-index:9
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #toast.bad{background:#7a1d1dee}
+  .banner{display:none;background:rgba(255,92,92,.12);border:1px solid var(--err);color:var(--err);
+    border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.6;word-break:break-all}
+  .banner.info{background:rgba(127,127,127,.10);border-color:var(--line);color:var(--dim)}
+  .safety{display:none;background:rgba(255,176,32,.12);border:1px solid var(--warn);color:var(--warn);
+    border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+  #diagPre{
+    margin:0;font:11px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--dim);
+    white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;
+    background:rgba(127,127,127,.08);border-radius:8px;padding:8px
+  }
+  .mask{position:fixed;top:0;left:0;right:0;bottom:0;background:#000a;display:none;
+    align-items:center;justify-content:center;z-index:20;padding:24px}
+  .mask.show{display:flex}
+  html.lock,body.lock{overflow:hidden;overscroll-behavior:none}
+  .mask .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;
+    max-width:340px;width:100%}
+  .mask p{margin:0 0 14px;font-size:14px;line-height:1.7}
+  .mask .b{display:flex;gap:8px}
+  .mask .b button{flex:1;padding:11px 0;border-radius:11px;border:1px solid var(--line);
+    background:transparent;color:var(--fg);font-size:14px;font-weight:600}
+  .mask .b button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  
+  .card.fold{padding:0}
+  .card.fold .hd{display:flex;align-items:center;gap:10px;padding:14px 14px 12px;
+    cursor:pointer;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+  .card.fold .hd h2{margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;line-height:1.4;font-size:14px;color:var(--fg)}
+  .card.fold .sm{font-size:11px;font-weight:400;color:var(--dim);margin-left:8px;
+    font-variant-numeric:tabular-nums}
+  .card.fold .hd:active{background:rgba(127,127,127,.07)}
+  .card.fold .chev{width:7px;height:7px;flex:0 0 auto;margin:-4px 2px 0 0;
+    border-right:1.6px solid var(--dim);border-bottom:1.6px solid var(--dim);
+    transform:rotate(45deg);transition:transform .28s cubic-bezier(.4,0,.2,1),
+    border-color .2s}
+  .card.fold.closed .chev{transform:rotate(-45deg);margin-top:0;margin-bottom:2px}
+  .card.fold:not(.closed) .hd .chev{border-color:var(--accent-2)}
+  .card.fold .bd{overflow:hidden;transition:max-height .3s cubic-bezier(.4,0,.2,1),
+    opacity .22s ease}
+  .card.fold.closed .bd{max-height:0;opacity:0}
+  .card.fold .bd-in{padding:0 14px 14px}
+  
+  @keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+  @keyframes pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
+  body>header,body>.card,body>.banner,body>.safety{animation:rise .32s cubic-bezier(.4,0,.2,1) both}
+  .mask.show .box{animation:pop .2s cubic-bezier(.34,1.4,.64,1) both}
+  .acts button,.seg button,.seg4 button,.mask .b button{
+    transition:background .16s ease,border-color .16s ease,transform .12s ease}
+  .acts button:active,.seg button:active,.seg4 button:active,.mask .b button:active{
+    transform:scale(.97)}
+  .banner,.safety{animation:rise .22s cubic-bezier(.4,0,.2,1) both}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.001s!important;transition-duration:.001s!important}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Quick Charge</h1>
+  <span class="ver" id="ver">—</span>
+  <span class="dot" id="dot"></span>
+</header>
+
+<div class="banner" id="banner"></div>
+<div class="safety" id="safety">⚠ 安全模式：连续多次开机未完成，本次未挂载配置。可在下方“重挂”退出。</div>
+
+<div class="card">
+  <div class="grid">
+    <div><div class="k">真实</div><div class="v" id="real">—</div><div class="s" id="realSrc"></div></div>
+    <div><div class="k">系统看到</div><div class="v" id="out">—</div><div class="s" id="outSrc"></div></div>
+    <div><div class="k">配置</div><div class="v" id="mounted">—</div><div class="s" id="mntSrc"></div></div>
+    <div><div class="k">守护</div><div class="v" id="daemon">—</div><div class="s" id="dmSrc"></div></div>
+  </div>
+  <div class="sum" id="sum"></div>
+</div>
+
+<div class="card" id="diagCard" style="display:none">
+  <h2>环境自检</h2>
+  <p class="hint" style="margin-top:0">按「页面 → 模块 → 守护」三段逐项判定，回答的是“哪一段断了”。
+    数值出不来、按钮没反应时先看这里第一行的结论，不用猜。</p>
+  <pre id="diagPre">—</pre>
+  <div class="acts" style="margin-top:10px">
+    <button id="diagRun">重新检测</button>
+    <button id="diagCopy">复制</button>
+    <button id="diagHide">收起</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>实时功耗 <span class="tag" id="psrc">仅页面打开时采样</span></h2>
+  <div class="pwr">
+    <div><div class="k">电流</div><div class="v" id="pma">—</div></div>
+    <div><div class="k">功率</div><div class="v" id="pw">—</div></div>
+    <div><div class="k">电池</div><div class="v" id="ptemp">—</div></div>
+  </div>
+  <canvas id="spark"></canvas>
+</div>
+
+<div class="card">
+  <h2>温控改写范围</h2>
+  <div class="seg" id="modeSeg">
+    <button data-mode="static">全局运行</button>
+    <button data-mode="charge">仅充电</button>
+    <button data-mode="off">关闭</button>
+  </div>
+  <div class="hint" id="modeHint">选择改写范围，点一下立即生效</div>
+</div>
+
+<div class="card fold closed" id="foldMain">
+  <div class="hd" id="foldMainHd" role="button" aria-expanded="false">
+    <h2>核心参数<span class="sm" id="sumMain"></span></h2>
+    <span class="chev"></span>
+  </div>
+  <div class="bd" id="foldMainBd"><div class="bd-in">
+  <div class="hint" style="margin:-2px 0 10px">滑块左右拖动调整，松手生效；点按不会跳值，上下滑页面时扫到也不会误改。</div>
+
+  <div class="row"><label for="aggr">温控档位</label><span class="val" id="aggrV">—</span></div>
+  <div class="rw"><input type="range" id="aggr" min="0" max="10" step="1"></div>
+  <div class="switch" style="margin-top:2px">档位越高压得越狠，可拉开温差 = 2 + 档位</div>
+
+  <div class="row" style="margin-top:18px">
+    <label for="wall">温度墙</label>
+    <span class="val" id="wallV">—</span>
+  </div>
+  <div class="rw"><input type="range" id="wall" min="35" max="80" step="1" value="42"></div>
+  <div class="switch" style="margin-top:2px">
+    <input type="checkbox" id="wallOff"><label for="wallOff">关闭温度墙（伪装持续到熔断阈值前 2℃）</label>
+  </div>
+
+  <div class="row" style="margin-top:18px"><label for="curredge">限流提前量</label><span class="val" id="curredgeV">—</span></div>
+  <div class="rw"><input type="range" id="curredge" min="0" max="6" step="1" value="4"></div>
+  <div class="switch" style="margin-top:2px">0 = 一直顶到墙才降流；数值越大越保守，离墙还远就提前降</div>
+
+  <div class="row" style="margin-top:18px"><label for="shell">基准温度</label><span class="val" id="shellV">—</span></div>
+  <div class="rw"><input type="range" id="shell" min="25" max="60" step="1"></div>
+  <div class="switch" id="shellHint">系统看到的温度上限；真实温度低于它时不会改写</div>
+
+  <div class="row" style="margin-top:18px"><label for="curr">充电限流</label><span class="val" id="currV">—</span></div>
+  <div class="rw"><input type="range" id="curr" min="0" max="8000" step="500"></div>
+  <div class="switch" id="currHint" style="margin-top:2px">限流是上限，未插电时不生效</div>
+  </div></div>
+</div>
+
+<div class="card fold closed" id="foldCur">
+  <div class="hd" id="foldCurHd" role="button" aria-expanded="false">
+    <h2>熔断阈值<span class="sm" id="sumCur"></span></h2>
+    <span class="chev"></span>
+  </div>
+  <div class="bd" id="foldCurBd"><div class="bd-in">
+  <div class="row" style="margin-top:2px"><label for="batt">电池</label><span class="val" id="battV">—</span></div>
+  <div class="rw"><input type="range" id="batt" min="30" max="70" step="1"></div>
+  <div class="row" style="margin-top:14px"><label for="soc">主板 / SoC</label><span class="val" id="socV">—</span></div>
+  <div class="rw"><input type="range" id="soc" min="60" max="110" step="1"></div>
+  </div></div>
+</div>
+
+<div class="card fold closed" id="foldExtreme">
+  <div class="hd" id="foldExtremeHd" role="button" aria-expanded="false">
+    <h2>极端功率<span class="sm" id="sumExtreme">安全边界未动</span></h2>
+    <span class="chev"></span>
+  </div>
+  <div class="bd" id="foldExtremeBd"><div class="bd-in">
+  <div class="hint" style="margin:-2px 0 10px;color:#ff6b35">
+    会突破模块默认守着的安全边界，清楚后果再开。
+  </div>
+
+  <div class="row"><label for="battSp">电池 NTC 上报</label><span class="val" id="battSpV">—</span></div>
+  <div class="rw"><input type="range" id="battSp" min="20" max="45" step="1"></div>
+  <div class="switch" style="margin-top:2px">
+    <input type="checkbox" id="battSpOff"><label for="battSpOff">关闭电池 NTC 伪装（电池温度保持真实）</label>
+  </div>
+  <div class="switch" id="battSpHint" style="margin-top:2px">按此值上报；真实 ≥46℃ 自动撤销并冷却</div>
+
+  <div class="switch" style="margin-top:18px">
+    <input type="checkbox" id="thermalOff"><label for="thermalOff">停用系统热管理（horae）</label>
+  </div>
+  <div class="switch" id="thermalHint" style="margin-top:2px">停掉欧加的温度策略服务，不再按温度降频；散热后果自己承担</div>
+
+  <div class="acts" style="margin-top:16px">
+    <button id="boost" class="wide">暴力模式</button>
+  </div>
+  <div class="hint" style="margin-top:8px">顶墙才降流 · 档位 10 · 快充阈值 85%，只改这三个参数，不动上面两项</div>
+  </div></div>
+</div>
+
+<div class="card fold closed" id="foldCpu">
+  <div class="hd" id="foldCpuHd" role="button" aria-expanded="false">
+    <h2>CPU 伪装<span class="sm" id="cpuNow">—</span></h2>
+    <span class="chev"></span>
+  </div>
+  <div class="bd" id="foldCpuBd"><div class="bd-in">
+  <div class="row" style="margin-top:2px"><label for="coreT">上报温度</label><span class="val" id="coreTV">—</span></div>
+  <div class="rw"><input type="range" id="coreT" min="20" max="70" step="1" value="45"></div>
+  <div class="switch" style="margin-top:2px">
+    <input type="checkbox" id="coreOff"><label for="coreOff">关闭伪装（交回真实温度）</label>
+  </div>
+  <div class="switch" id="coreHint" style="margin-top:4px"></div>
+  </div></div>
+</div>
+
+<div class="card fold closed" id="foldHz">
+  <div class="hd" id="foldHzHd" role="button" aria-expanded="false">
+    <h2>刷新率<span class="sm" id="hzNow">当前 —</span></h2>
+    <span class="chev"></span>
+  </div>
+  <div class="bd" id="foldHzBd"><div class="bd-in">
+  <div class="row" style="margin-top:2px"><label for="hz">锁定档位</label><span class="val" id="hzV">—</span></div>
+  <div class="rw"><input type="range" id="hz" min="0" max="5" step="1" value="0"></div>
+  <div class="ticks" id="hzTicks"><span>关</span><span>90</span><span>120</span><span>144</span><span>165</span><span>185</span></div>
+  <div class="switch" style="margin-top:2px">
+    <input type="checkbox" id="hzHard"><label for="hzHard">强制锁定（不接受内容帧率切换）</label>
+  </div>
+  <div class="switch" id="hzHint" style="margin-top:4px;display:none"></div>
+  </div></div>
+</div>
+
+<div class="card">
+  <h2>操作</h2>
+  <div class="acts">
+    <button id="refresh">刷新</button>
+    <button id="diagBtn">环境自检</button>
+    <button id="rebuild">重挂</button>
+    <button id="restart">重启守护</button>
+  </div>
+</div>
+
+<footer>
+  By.Xiaohao · <span class="lnk" id="joinQun" role="link">加入群聊</span> · <span class="lnk" id="followAuthor" role="link">关注作者</span>
+  <div class="lic">源码完全公开 · 禁止商用与非法用途</div>
+</footer>
+
+<div id="toast"></div>
+
+<div class="mask" id="ask">
+  <div class="box">
+    <p id="askMsg"></p>
+    <div class="b">
+      <button id="askNo">取消</button>
+      <button id="askYes" class="pri">确认</button>
+    </div>
+  </div>
+</div>
+
+<script>(function () {
+  "use strict";
+  var SH = "/system/bin/sh";
+  var MOD = null;
+  var S = null;
+  var hzHard = false;
+  var HZ_STEPS = [0, 90, 120, 144, 165, 185];
+  var hzSup = [];
+  var hzAt = 0;
+  var timer = null;
+  var pwr = [];
+  var pwrTimer = null;
+  var pwrBusy = false;
+  var lastErr = "";
+  var CAND = ["/data/adb/modules/quickcharge", "/data/adb/modules_update/quickcharge"];
+  var QUN_URL = "https://qun.qq.com/universal-share/share?ac=1&authKey=sxretTuuUbT6DSq6WUsRcAhqpzEtEmLd" +
+    "UgjcJW5EFkih769NPI7mFOtBWBsiLb56&busi_data=eyJncm91cENvZGUiOiIxMDAzNDgxNjYwIiwidG9rZW4" +
+    "iOiJnaGZRMVVNSCtOZFNyWUV4cEk2bU9Jd05neVpwUmVkOTIxV3VpcVRwS2Iram1rNC81TmtnNUJ3MjRxYm9Jc" +
+    "GJEIiwidWluIjoiMjExMTgzNTIyMCJ9&data=Gr9CwynFwy41T0Lgv3epv7_E3bgXVe1lKsqwWOnF338a3I7ve" +
+    "anebrcFNu2aJI8_5AZAHr7NXTdhgkf2iFtq-g&svctype=4&tempid=h5_group_info";
+  var COOLAPK_URL = "https://www.coolapk.com/u/27316679";
+  function $(id) { return document.getElementById(id); }
+  function bridgeName() {
+    if (window.ksu && typeof window.ksu.exec === "function") return "ksu";
+    if (window.mmrl && typeof window.mmrl.exec === "function") return "mmrl";
+    if (window.apatch && typeof window.apatch.exec === "function") return "apatch";
+    if (typeof window.exec === "function") return "global";
+    return "";
+  }
+  function api() {
+    if (window.ksu && typeof window.ksu.exec === "function") return window.ksu;
+    if (window.apatch && typeof window.apatch.exec === "function") return window.apatch;
+    if (typeof window.exec === "function") return window;
+    return null;
+  }
+  var CALL = "";
+  var SEQ = 0;
+  function num(v) { return (v === null || v === undefined || v === "") ? 0 : (Number(v) || 0); }
+  function str(v) { return (v === null || v === undefined) ? "" : String(v); }
+  function unpack(v) {
+    if (typeof v === "string") { try { v = JSON.parse(v); } catch (e) {} }
+    if (v && typeof v === "object" && v.errno !== undefined) {
+      return { code: num(v.errno), out: str(v.stdout), err: str(v.stderr) };
+    }
+    return null;
+  }
+  function callName(cmd, ms, cb) {
+    var a = api();
+    if (!a) { cb({ code: -1, out: "", err: "没有可用的执行接口" }); return; }
+    var key = "__qc" + (++SEQ) + "x" + ((Math.random() * 1e6) | 0);
+    var done = false, t = null;
+    function fin(code, out, err) {
+      if (done) return;
+      done = true;
+      if (t) { clearTimeout(t); t = null; }
+      try { delete window[key]; } catch (e) { window[key] = null; }
+      cb({ code: num(code), out: str(out), err: str(err) });
+    }
+    window[key] = fin;
+    t = setTimeout(function () {
+      if (done) return;
+      done = true;
+      try { delete window[key]; } catch (e) { window[key] = null; }
+      cb({ code: -2, out: "", err: "回调未触发" });
+    }, ms);
+    try {
+      var r = a.exec(cmd, "{}", key);
+      var u = unpack(r);
+      if (u) { fin(u.code, u.out, u.err); return; }
+      if (r && typeof r.then === "function") {
+        r.then(function (v) { var w = unpack(v); if (w) fin(w.code, w.out, w.err); }, function () {});
+      }
+    } catch (e) {
+      if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: String(e) }); }
+    }
+  }
+  function callFn(cmd, ms, cb) {
+    var done = false, t = null;
+    function fin(code, out, err) {
+      if (done) return;
+      done = true;
+      if (t) { clearTimeout(t); t = null; }
+      cb({ code: num(code), out: str(out), err: str(err) });
+    }
+    t = setTimeout(function () {
+      if (done) return;
+      done = true;
+      cb({ code: -2, out: "", err: "回调未触发" });
+    }, ms);
+    try {
+      var a = api();
+      if (!a) { if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: "没有可用的执行接口" }); } return; }
+      var r = a.exec(cmd, "{}", fin);
+      var u = unpack(r);
+      if (u) { fin(u.code, u.out, u.err); return; }
+      if (r && typeof r.then === "function") {
+        r.then(function (v) { var w = unpack(v); if (w) fin(w.code, w.out, w.err); }, function () {});
+      }
+    } catch (e) {
+      if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: String(e) }); }
+    }
+  }
+  function callSync(cmd, ms, cb) {
+    var done = false, t = null;
+    function fin(code, out, err) {
+      if (done) return;
+      done = true;
+      if (t) { clearTimeout(t); t = null; }
+      cb({ code: num(code), out: str(out), err: str(err) });
+    }
+    t = setTimeout(function () {
+      if (done) return;
+      done = true;
+      cb({ code: -2, out: "", err: "调用没有返回" });
+    }, ms);
+    try {
+      var a = api();
+      if (!a) { if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: "没有可用的执行接口" }); } return; }
+      var r = a.exec(cmd);
+      if (typeof r === "string") { fin(0, r, ""); return; }
+      var u = unpack(r);
+      if (u) { fin(u.code, u.out, u.err); return; }
+      if (r && typeof r.then === "function") {
+        r.then(function (v) {
+          if (typeof v === "string") { fin(0, v, ""); return; }
+          var w = unpack(v); if (w) fin(w.code, w.out, w.err);
+        }, function (e) { fin(-1, "", String(e)); });
+      } else if (!done) {
+        fin(-1, "", "无法识别的返回类型");
+      }
+    } catch (e) {
+      if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: String(e) }); }
+    }
+  }
+  function callMmrl(cmd, ms, cb) {
+    var done = false, t = null;
+    function fin(code, out, err) {
+      if (done) return;
+      done = true;
+      if (t) { clearTimeout(t); t = null; }
+      cb({ code: num(code), out: str(out), err: str(err) });
+    }
+    t = setTimeout(function () {
+      if (done) return;
+      done = true;
+      cb({ code: -2, out: "", err: "调用没有返回" });
+    }, ms);
+    try {
+      var p = window.mmrl.exec(cmd);
+      if (p && typeof p.then === "function") {
+        p.then(function (v) { var u = unpack(v); if (u) fin(u.code, u.out, u.err); else fin(-1, "", "返回格式未知"); },
+               function (e) { fin(-1, "", String(e)); });
+      } else {
+        var u2 = unpack(p);
+        if (u2) fin(u2.code, u2.out, u2.err); else fin(-1, "", "返回格式未知");
+      }
+    } catch (e) {
+      if (!done) { done = true; if (t) clearTimeout(t); cb({ code: -1, out: "", err: String(e) }); }
+    }
+  }
+  function exec(cmd, cb) {
+    if (!CALL) { cb({ code: -1, out: "", err: "执行通道还没就绪" }); return; }
+    if (CALL === "name") callName(cmd, 15000, cb);
+    else if (CALL === "fn") callFn(cmd, 15000, cb);
+    else if (CALL === "sync") callSync(cmd, 15000, cb);
+    else if (CALL === "mmrl") callMmrl(cmd, 15000, cb);
+    else cb({ code: -1, out: "", err: "执行通道还没就绪" });
+  }
+  function connect(cb) {
+    if (CALL) { cb(true); return; }
+    var b = bridgeName();
+    if (!b) { CALL = ""; cb(false); return; }
+    if (b === "mmrl") {
+      callMmrl("echo qcprobe", 3000, function (r) {
+        var ok = r.code === 0 && r.out.indexOf("qcprobe") >= 0;
+        CALL = ok ? "mmrl" : "";
+        cb(ok);
+      });
+      return;
+    }
+    callName("echo qcprobe1", 1500, function (r1) {
+      if (r1.code === 0 && r1.out.indexOf("qcprobe1") >= 0) { CALL = "name"; cb(true); return; }
+      callFn("echo qcprobe2", 1500, function (r2) {
+        if (r2.code === 0 && r2.out.indexOf("qcprobe2") >= 0) { CALL = "fn"; cb(true); return; }
+        callSync("echo qcprobe3", 1500, function (r3) {
+          if (r3.code === 0 && r3.out.indexOf("qcprobe3") >= 0) { CALL = "sync"; cb(true); return; }
+          CALL = ""; cb(false);
+        });
+      });
+    });
+  }
+  function toast(msg, bad) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "show" + (bad ? " bad" : "");
+    clearTimeout(t._h);
+    t._h = setTimeout(function () { t.className = ""; }, 2400);
+  }
+  function fail(msg) {
+    lastErr = msg;
+    var b = $("banner");
+    b.className = "banner";
+    b.textContent = msg;
+    b.style.display = "block";
+    diag(false);
+  }
+  function info(msg) {
+    var b = $("banner");
+    b.className = "banner info";
+    b.textContent = msg;
+    b.style.display = "block";
+  }
+  function okBanner() { $("banner").style.display = "none"; }
+  function detectMod(cb) {
+    var probe = 'for d in ' + CAND.join(" ") + '; do [ -f "$d/action.sh" ] && { echo "$d"; break; }; done';
+    exec(probe, function (r) {
+      var p = pickFirstLine(r.out);
+      if (p) { MOD = p; cb(true); return; }
+      exec('for d in /data/adb/modules/*/; do [ -f "$d/action.sh" ] && [ -f "$d/module.prop" ] && ' +
+           'grep -q "^id=quickcharge" "$d/module.prop" && { echo "${d%/}"; break; }; done', function (r2) {
+        var q = pickFirstLine(r2.out);
+        if (q) { MOD = q; cb(true); return; }
+        cb(false);
+      });
+    });
+  }
+  function pickFirstLine(s) {
+    var a = String(s || "").replace(/\r/g, "").split("\n");
+    for (var i = 0; i < a.length; i++) {
+      var v = a[i].replace(/^\s+|\s+$/g, "");
+      if (v) return v;
+    }
+    return "";
+  }
+  function run(arg, cb) {
+    if (!MOD) { cb({ code: -1, out: "", err: "模块路径未探测到" }); return; }
+    var q = SH + ' "' + MOD + '/action.sh" ' + arg;
+    exec(q, function (r) {
+      if (r.code === -1 && /not found|No such file|ENOENT/i.test(r.err)) {
+        exec('sh "' + MOD + '/action.sh" ' + arg, cb);
+      } else {
+        cb(r);
+      }
+    });
+  }
+  function parseJSON(out) {
+    var lines = String(out || "").replace(/\r/g, "").split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var s = lines[i].replace(/^\s+|\s+$/g, "");
+      if (s.charAt(0) === "{") {
+        try { return JSON.parse(s); } catch (e) {}
+      }
+    }
+    return null;
+  }
+  function load(cb) {
+    if (!MOD) { if (cb) cb(false); return; }
+    run("json", function (r) {
+      var d = parseJSON(r.out);
+      if (!d) {
+        fail("读取状态失败：退出码 " + r.code +
+             (r.err ? "，" + pickFirstLine(r.err) : "") +
+             (r.out ? "，输出 " + r.out.replace(/\s+/g, " ").slice(0, 120) : "，没有输出"));
+        if (cb) cb(false);
+        return;
+      }
+      okBanner();
+      S = d;
+      render(d);
+      if (cb) cb(true);
+    });
+  }
+  function hzText(d) {
+    if (!d.hz || d.hz === "off") return "";
+    switch (d.hz_state) {
+      case "drift":     return "键已被系统改回，锁定未生效";
+      case "low_power": return "省电模式开启，系统会强制 60Hz，锁定无效";
+      case "ok":        return hzHard
+        ? "强制锁定 " + d.hz + "Hz · 每 15 秒回读补写"
+        : d.hz + "Hz 已写入 · 系统仍可按内容降频";
+      default:          return "写入 " + d.hz + "Hz";
+    }
+  }
+  function modeText(d) {
+    switch (d.mode) {
+      case "static": return "任何场景都改写：插电、拔电、游戏、待机都生效";
+      case "charge": return d.charging
+        ? "插电中 · 自定义温控生效，拔电后 10 秒内还原真实温度"
+        : "未插电 · 当前用系统原温控，插电后自动接管";
+      case "off":    return "不改写任何温控节点，读数全部是真实值";
+      default:       return "选择改写范围，点一下立即生效";
+    }
+  }
+  function rewritten(d) {
+    if (d.target === null || d.target === undefined || d.target <= 0) return false;
+    if (d.real === null || d.real === undefined) return true;
+    return d.target !== d.real;
+  }
+  function mmShort(n) {
+    if (!n) return "元模块";
+    if (n === "Magic Mount") return "Magic";
+    return n;
+  }
+  function summary(d) {
+    if (!d.daemon) return "守护没在跑，改参数不会生效。点下面「重启守护」。";
+    if (d.mode === "off") return "未改写：系统读到的是真实温度，只有配置文件改写生效。";
+    if (d.mode === "charge" && !d.charging) return "待机：拔电时用系统原温控，插上充电器后自动接管。";
+    if (rewritten(d)) {
+      if (d.emul_ok === 0) {
+        return "目标 <b>" + d.target + "℃</b> 算出来了，但一个节点都写不进去（没有 emul_temp 或被拒写），" +
+               "系统实际仍在读真实温度。跑一次 <code>action.sh probe</code> 看节点情况。";
+      }
+      return d.real === null || d.real === undefined
+        ? "改写中：系统看到的温度固定为 <b>" + d.target + "℃</b>，真实温度读不到。"
+        : "改写中：真实 <b>" + d.real + "℃</b> → 系统看到 <b>" + d.target + "℃</b>";
+    }
+    if (d.real === null || d.real === undefined) {
+      return "读不到真实温度，模块不知道该报多少，所以没有改写。" +
+             (d.real_why ? "原因：<b>" + d.real_why + "</b>。" : "") +
+             "点下面「环境自检」看是温区、权限还是守护的问题。";
+    }
+    if (d.base_clamped) {
+      return "参数打架：基准 <b>" + (d.shell_set || d.shell_temp) + "℃</b> 不低于停止线 <b>" +
+             (d.barrier || "—") + "℃</b>，可改写的区间是空的，所以系统一直看到真实温度。" +
+             "把基准降到 30~33℃ 才会真正压低读数。";
+    }
+    if (d.real !== null && d.real !== undefined && d.shell_temp && d.real < d.shell_temp) {
+      return "未改写：真实 <b>" + d.real + "℃</b> 已低于基准 <b>" + d.shell_temp + "℃</b>，" +
+             "没有继续压低的必要。模块只把高温往低压，不会凭空报出更低的温度。";
+    }
+    return "未改写：系统读到的是真实温度。";
+  }
+  function render(d) {
+    $("ver").textContent = "v" + (d.version || "—");
+    $("dot").className = "dot" + (d.daemon ? " on" : "");
+    if (d.real === null || d.real === undefined) {
+      $("real").textContent = "—";
+      $("realSrc").textContent = d.daemon ? (d.real_why || "读不到") : "守护没跑";
+    } else {
+      $("real").textContent = d.real + "℃";
+      $("realSrc").textContent = d.real_src === "cache" ? "守护读数" : "现场直读";
+    }
+    if (rewritten(d)) {
+      $("out").textContent = d.target + "℃";
+      $("outSrc").textContent = d.emul_ok === 0 ? "写入失败" : "已改写";
+    } else {
+      $("out").textContent = (d.real === null || d.real === undefined) ? "—" : "同真实";
+      $("outSrc").textContent = "未改写";
+    }
+    if (d.mount_mode === "nomount") {
+      $("mounted").textContent = (d.nm_files || 0) + " 项";
+      $("mntSrc").textContent = "已注入";
+    } else if (d.mount_mode === "nomount-idle") {
+      $("mounted").textContent = "0 项";
+      $("mntSrc").textContent = "缺文件";
+    } else if (d.mount_mode === "meta") {
+      $("mounted").textContent = (d.nm_files || 0) + " 项";
+      $("mntSrc").textContent = mmShort(d.mm_name) + " 托管";
+    } else if (d.mount_mode === "meta-idle") {
+      $("mounted").textContent = "0 项";
+      $("mntSrc").textContent = "缺文件";
+    } else if (d.mount_mode === "bind") {
+      $("mounted").textContent = d.mounted + " 项";
+      $("mntSrc").textContent = "已挂载";
+    } else {
+      $("mounted").textContent = d.mounted + " 项";
+      $("mntSrc").textContent = "未生效";
+    }
+    $("daemon").textContent = d.daemon ? "运行" : "停止";
+    $("dmSrc").textContent = d.daemon
+      ? (d.daemon_age >= 0 ? d.daemon_age + "s 前心跳" : "pid 存活")
+      : "点下面重启";
+    $("sum").innerHTML = summary(d);
+    $("safety").style.display = d.safety ? "block" : "none";
+    eachChild($("modeSeg"), function (b) {
+      b.className = b.getAttribute("data-mode") === d.mode ? "on" : "";
+    });
+    $("modeHint").textContent = modeText(d);
+    if (rngPush("aggr", d.aggr)) {
+      $("aggrV").textContent = d.aggr + "/10 · 温差 " + d.gap + "℃";
+    }
+    if (rngPush("curredge", d.curr_edge)) {
+      $("curredgeV").textContent = Number(d.curr_edge) === 0
+        ? "顶墙" : "距墙 " + d.curr_edge + "℃";
+    }
+    if (d.wall !== "off" && rngPush("wall", d.wall)) {
+      $("wallV").textContent = d.wall + "℃";
+    } else if (d.wall === "off") {
+      $("wallV").textContent = "关";
+    }
+    $("wallOff").checked = d.wall === "off";
+    $("wall").disabled = d.wall === "off";
+    if (!rngBusy("shell")) {
+      $("shell").max = d.wall === "off" ? 60 : Math.max(25, Number(d.wall) - 2);
+    }
+    if (rngPush("shell", d.shell_temp)) {
+      $("shellV").textContent = d.base_clamped
+        ? (d.shell_set || d.shell_temp) + "℃ → 按 " + d.shell_temp + "℃"
+        : d.shell_temp + "℃";
+    }
+    $("shellHint").textContent = d.base_clamped
+      ? "基准不低于停止线，伪装区间为空；建议改成 30~33℃"
+      : (d.wall === "off"
+          ? "系统看到的温度上限；真实温度低于它时不会改写"
+          : "必须低于温度墙 " + d.wall + "℃；真实温度低于它时不会改写");
+    if (rngPush("curr", d.curr_max)) {
+      $("currV").textContent = d.curr_max > 0 ? d.curr_max + "mA" : "不限";
+    }
+    $("currHint").textContent = d.curr_max > 0
+      ? (d.charging
+          ? "已生效 · 当前温度下允许 " + (d.curr_target || d.curr_max) + "mA"
+          : "未插电 · 接上充电器后生效")
+      : "不限制充电电流";
+    if (rngPush("batt", d.battery_limit === "off" ? 48 : d.battery_limit)) {
+      $("battV").textContent = d.battery_limit === "off" ? "关" : d.battery_limit + "℃";
+    }
+    if (rngPush("soc", d.sentinel_limit === "off" ? 85 : d.sentinel_limit)) {
+      $("socV").textContent = d.sentinel_limit === "off" ? "关" : d.sentinel_limit + "℃";
+    }
+    var bsp = (d.batt_spoof && d.batt_spoof !== "off") ? Number(d.batt_spoof) : 0;
+    if (rngPush("battSp", bsp > 0 ? bsp : 30)) {
+      $("battSpV").textContent = bsp > 0 ? bsp + "℃" : "关";
+    }
+    $("battSpOff").checked = !(bsp > 0);
+    $("battSp").disabled = !(bsp > 0);
+    $("battSpHint").textContent = bsp > 0
+      ? "系统读到 " + bsp + "℃" +
+        (d.batt_real !== null && d.batt_real !== undefined
+          ? " · 真实 " + d.batt_real + "℃" : " · 真实温度读不到") +
+        "；真实 ≥46℃ 自动撤销"
+      : "电池温度保持真实；开启后才改写";
+    $("thermalOff").checked = d.thermal === "off";
+    $("thermalHint").textContent = d.thermal === "off"
+      ? "horae 已停：系统不再按温度降频"
+      : "停掉欧加的温度策略服务，不再按温度降频；散热后果自己承担";
+    $("sumExtreme").textContent = (bsp > 0 || d.thermal === "off")
+      ? (bsp > 0 ? "电池 " + bsp + "℃" : "") +
+        (bsp > 0 && d.thermal === "off" ? " · " : "") +
+        (d.thermal === "off" ? "热管理停用" : "")
+      : "安全边界未动";
+    var ct = (d.core && d.core !== "off") ? Number(d.core) : 0;
+    if (rngPush("coreT", ct > 0 ? ct : 45)) {
+      $("coreTV").textContent = ct > 0 ? ct + "℃" : "关";
+    }
+    $("coreOff").checked = !(ct > 0);
+    $("coreT").disabled = !(ct > 0);
+    $("cpuNow").textContent = ct > 0 ? "上报 " + ct + "℃" : "未伪装";
+    $("coreHint").textContent = ct > 0
+      ? "系统读到的核心温度固定为 " + ct + "℃，调度按这个数决定降不降频。"
+        + "设得越低，系统越不当回事，但真实发热不会跟着降。"
+      : "未伪装：系统读到的是真实温度。";
+    var bOn = Number(d.curr_edge) === 0 && Number(d.fast_cap) >= 85;
+    $("boost").className = "wide" + (bOn ? " on" : "");
+    $("boost").textContent = bOn ? "暴力模式 · 已开" : "暴力模式";
+    hzSup = hzParse(d.hz_list);
+    var hi = (!d.hz || d.hz === "off") ? 0 : HZ_STEPS.indexOf(Number(d.hz));
+    if (hi < 0) hi = 0;
+    var hzPushed = rngPush("hz", hi);
+    if (hzPushed) {
+      $("hzV").textContent = hzLabel(hi);
+      var nowHz = Number(d.hz_now) || 0;
+      $("hzNow").textContent = (nowHz > 0 ? "当前 " + nowHz + "Hz" : "当前 —") +
+        (hi === 0 ? " · 未锁定" : " · 锁 " + HZ_STEPS[hi] + "Hz");
+    }
+    hzTick(hi, hzPushed);
+    hzHard = d.hz_hard === 1;
+    $("hzHard").checked = hzHard;
+    $("hzHard").disabled = (hi === 0);
+    var ht = hzText(d);
+    $("hzHint").textContent = ht;
+    $("hzHint").style.display = ht ? "" : "none";
+    $("sumMain").textContent = "档位 " + d.aggr + " · 墙 " +
+      (d.wall === "off" ? "关" : d.wall + "℃") +
+      (Number(d.curr_max) > 0 ? " · 限流 " + d.curr_max + "mA" : "");
+    $("sumCur").textContent = "电池 " +
+      (d.battery_limit === "off" ? "关" : d.battery_limit + "℃") +
+      " · 主板 " + (d.sentinel_limit === "off" ? "关" : d.sentinel_limit + "℃");
+  }
+  function hzParse(v) {
+    var a = [], p = String(v || "").split(/[ ,]+/), i, n;
+    for (i = 0; i < p.length; i++) {
+      n = Number(p[i]);
+      if (n >= 60) a.push(n);
+    }
+    return a;
+  }
+  function hzOk(i) {
+    if (i <= 0) return true;
+    if (!hzSup.length) return true;
+    return hzSup.indexOf(HZ_STEPS[i]) >= 0;
+  }
+  function hzLabel(i) {
+    return Number(i) === 0 ? "不调节" : HZ_STEPS[Number(i)] + "Hz";
+  }
+  function hzClamp(v) {
+    var i = Math.round(num(v));
+    if (i < 0) i = 0;
+    if (i > HZ_STEPS.length - 1) i = HZ_STEPS.length - 1;
+    if (hzOk(i)) { hzAt = i; return i; }
+    return hzAt;
+  }
+  function hzTick(hi, setAt) {
+    if (setAt === false) return;
+    hzAt = hi;
+    eachChild($("hzTicks"), function (sp, i) {
+      var na = !hzOk(i);
+      sp.className = na ? "na" : (i === hi ? "on" : "");
+    });
+  }
+  function eachChild(el, fn) {
+    var i, n = el.children;
+    for (i = 0; i < n.length; i++) fn(n[i], i);
+  }
+  function callLabel() {
+    switch (CALL) {
+      case "name": return "原生回调";
+      case "fn":   return "函数回调";
+      case "sync": return "同步返回";
+      case "mmrl": return "MMRL";
+      default:     return "通道未建立";
+    }
+  }
+  var diagSeq = 0;
+  function diag(reset, scroll) {
+    var seq = ++diagSeq;
+    $("diagCard").style.display = "block";
+    if (scroll && $("diagCard").scrollIntoView) $("diagCard").scrollIntoView(true);
+    var body = [], raw = [], good = 0, bad = 0;
+    function flush() {
+      if (seq !== diagSeq) return;
+      var head = bad === 0
+        ? "结论  " + good + " 项全部正常"
+        : "结论  " + bad + " 项异常 / " + good + " 项正常";
+      $("diagPre").textContent = head + "\n\n" + body.join("\n") +
+        (raw.length ? "\n\n【原始输出】\n" + raw.join("\n") : "");
+    }
+    function line(s) { body.push(s); flush(); }
+    function pass(k, v) { good++; line("✓ " + k + (v ? "    " + v : "")); }
+    function fail(k, v) { bad++; line("✗ " + k + (v ? "    " + v : "")); }
+    function note(s) { raw.push(s); flush(); }
+    body.push("时间  " + new Date().toLocaleString());
+    body.push("");
+    body.push("【页面 → 模块】");
+    var b = bridgeName();
+    if (b) pass("执行接口", b + " · " + callLabel());
+    else fail("执行接口", "不在 KernelSU / APatch / MMRL 的 WebUI 里，页面无法执行命令");
+    if (MOD) pass("模块目录", MOD);
+    else fail("模块目录", "没找到，命令无法执行");
+    if (lastErr) fail("最近一次错误", lastErr);
+    flush();
+    if (reset) return;
+    exec("echo QC_OK", function (r) {
+      if (seq !== diagSeq) return;
+      note("echo QC_OK -> code=" + r.code + " out=" + JSON.stringify(r.out) + " err=" + JSON.stringify(r.err));
+      if (r.code !== 0) fail("命令通道", "echo 都执行不了（code " + r.code + "）");
+      else if (r.out.indexOf("QC_OK") < 0) fail("命令通道", "命令返回了空输出");
+      else pass("命令通道", "echo 正常");
+      if (!MOD) {
+        detectMod(function (ok) { if (ok) pass("模块目录", MOD); probeJson(seq, pass, fail, note); });
+      } else {
+        probeJson(seq, pass, fail, note);
+      }
+    });
+  }
+  function probeJson(seq, pass, fail, note) {
+    if (!MOD) { return; }
+    run("json", function (r) {
+      if (seq !== diagSeq) return;
+      var d = parseJSON(r.out);
+      if (!d) {
+        fail("状态读取", "action.sh json 没有返回可解析的内容");
+        note("json code=" + r.code + " len=" + r.out.length);
+        if (r.err) note("stderr: " + pickFirstLine(r.err));
+        note((r.out || "(空)").replace(/\s+/g, " ").slice(0, 300));
+        return;
+      }
+      pass("状态读取", "json " + r.out.length + " 字节");
+      if (d.real === null || d.real === undefined) {
+        fail("温度", "读不到（温区 " + (d.zones || 0) + " 个 · 守护" + (d.daemon ? "在跑" : "没跑") + "）");
+      } else {
+        pass("温度", d.real + "℃ · " + (d.sentinel || "?") + " · " +
+             (d.real_src === "cache" ? "来自守护缓存" : "页面现场读取"));
+      }
+      pass("挂载", d.mount_mode === "nomount"
+        ? "NoMount 注入 " + (d.nm_files || 0) + " 个文件（不产生挂载）"
+        : d.mount_mode === "nomount-idle"
+          ? "NoMount 在位，但没有注入文件"
+          : d.mount_mode === "meta"
+            ? (d.mm_name || "元模块") + " 托管 " + (d.nm_files || 0) + " 个文件（开机挂载）"
+            : d.mount_mode === "meta-idle"
+              ? (d.mm_name || "元模块") + " 在位，但没有交付文件"
+              : d.mount_mode === "bind"
+                ? "bind mount " + d.mounted + " 条"
+                : "未生效（0 个文件）");
+      if (d.daemon) pass("守护", "运行中" + (d.daemon_age >= 0 ? " · " + d.daemon_age + " 秒前心跳" : ""));
+      else fail("守护", "未运行，参数改动不会自动执行；点下方「重启守护」");
+      note("json " + r.out.length + " 字节：" + r.out.replace(/\s+/g, " ").slice(0, 240));
+    });
+  }
+  function drawSpark() {
+    var c = $("spark");
+    if (!c || !c.getContext) return;
+    var dpr = window.devicePixelRatio || 1;
+    var w = c.clientWidth || 320, h = c.clientHeight || 56;
+    if (c.width !== Math.round(w * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    var g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    if (pwr.length < 2) return;
+    var max = Math.max.apply(null, pwr), min = Math.min.apply(null, pwr);
+    if (max === min) { max += 1; min -= 1; }
+    var pad = 3, i, x, y;
+    g.beginPath();
+    for (i = 0; i < pwr.length; i++) {
+      x = pad + (w - pad * 2) * i / (pwr.length - 1);
+      y = h - pad - (h - pad * 2) * (pwr[i] - min) / (max - min);
+      if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    var accent = getComputedStyle(document.documentElement).getPropertyValue("--accent");
+    accent = (accent || "").replace(/^\s+|\s+$/g, "") || "#ff6b35";
+    g.strokeStyle = accent;
+    g.lineWidth = 2;
+    g.lineJoin = "round";
+    g.stroke();
+    g.lineTo(w - pad, h - pad);
+    g.lineTo(pad, h - pad);
+    g.closePath();
+    g.fillStyle = "rgba(255,107,53,.12)";
+    g.fill();
+  }
+  function samplePower() {
+    if (!MOD || document.hidden || pwrBusy) return;
+    pwrBusy = true;
+    run("power", function (r) {
+      pwrBusy = false;
+      var d = parseJSON(r.out);
+      if (!d) return;
+      var tag = [];
+      if (d.cells === 2) tag.push("双电芯");
+      if (d.plat === "mtk") tag.push("MTK");
+      else if (d.plat === "qcom") tag.push("高通");
+      if (d.proto === "vooc") tag.push("私有快充");
+      else if (d.proto === "pps" || d.proto === "ufcs") tag.push("公有快充");
+      tag.push("仅页面打开时采样");
+      $("psrc").textContent = tag.join(" · ");
+      $("pma").textContent = d.ma === null ? "—" : d.ma + " mA";
+      $("pw").textContent = d.w === null ? "—" : d.w + " W";
+      $("ptemp").textContent = d.temp === null ? "—" : d.temp + "℃";
+      if (d.w !== null && d.w !== undefined) {
+        pwr.push(Number(d.w));
+        if (pwr.length > 60) pwr.shift();
+        drawSpark();
+      }
+    });
+  }
+  function startPower() {
+    if (pwrTimer || !MOD) return;
+    samplePower();
+    pwrTimer = setInterval(samplePower, 3000);
+  }
+  function stopPower() {
+    if (pwrTimer) { clearInterval(pwrTimer); pwrTimer = null; }
+    pwr = [];
+    var c = $("spark");
+    if (c && c.getContext) c.getContext("2d").clearRect(0, 0, c.width, c.height);
+  }
+  function apply(arg, okMsg) {
+    if (!MOD) {
+      connect(function (cok) {
+        if (!cok) {
+          toast("执行通道未就绪", true);
+          fail("还没连上模块。点“环境自检”看卡在哪一步。");
+          return;
+        }
+        detectMod(function (ok) {
+          if (ok) { apply(arg, okMsg); return; }
+          toast("模块路径未找到", true);
+          fail("没有找到 Quick Charge 的安装目录，可能是模块未启用或未安装。");
+        });
+      });
+      return;
+    }
+    run(arg, function (r) {
+      var last = "";
+      var raw = r.err && !r.out ? r.err : (r.out || r.err || "");
+      var arr = raw.replace(/\s+$/, "").split("\n");
+      last = arr[arr.length - 1] || "";
+      if (r.code === 0) {
+        toast(okMsg, false);
+      } else {
+        toast(last || ("设置失败（" + r.code + "）"), true);
+        fail("执行 " + arg + " 失败：" + (last || r.err || ("退出码 " + r.code)));
+      }
+      load();
+    });
+  }
+  function ask(msg, onYes, onNo) {
+    $("askMsg").textContent = msg;
+    $("ask").className = "mask show";
+    lockScroll(true);
+    $("askYes").onclick = function () {
+      $("ask").className = "mask";
+      lockScroll(false);
+      onYes();
+    };
+    $("askNo").onclick = function () {
+      $("ask").className = "mask";
+      lockScroll(false);
+      if (onNo) onNo();
+    };
+  }
+  function lockScroll(on) {
+    var h = document.documentElement, b = document.body;
+    if (!h) return;
+    if (on) { h.classList.add("lock"); if (b) b.classList.add("lock"); }
+    else    { h.classList.remove("lock"); if (b) b.classList.remove("lock"); }
+  }
+  var RNG = {};
+  var EVO = false;
+  (function () {
+    try {
+      var o = Object.defineProperty({}, "passive", {
+        get: function () { EVO = { passive: false }; return true; }
+      });
+      window.addEventListener("qcx", null, o);
+      window.removeEventListener("qcx", null, o);
+    } catch (e) { EVO = false; }
+  })();
+  function snapTo(v, min, max, step) {
+    if (!step || step <= 0) step = 1;
+    v = min + Math.round((v - min) / step) * step;
+    if (v < min) v = min;
+    if (v > max) v = max;
+    return Math.round(v * 1000) / 1000;
+  }
+  function fire(el, name) {
+    var e;
+    try {
+      e = document.createEvent("HTMLEvents");
+      e.initEvent(name, true, false);
+      el.dispatchEvent(e);
+    } catch (x) {}
+  }
+  function rngBusy(id) {
+    var r = RNG[id];
+    return !!(r && (r.drag || new Date().getTime() < r.hold));
+  }
+  function rngPush(id, v) {
+    if (rngBusy(id)) return false;
+    var el = $(id);
+    var s = str(v);
+    if (el && String(el.value) !== s) el.value = s;
+    return true;
+  }
+  function bindRange(id, labelId, fmt, cmd, clamp) {
+    var el = $(id);
+    if (!el) return;
+    var wrap = el.parentNode;
+    var r = { el: el, label: $(labelId), fmt: fmt, cmd: cmd, clamp: clamp || null,
+              hold: 0, drag: 0, t: null };
+    RNG[id] = r;
+    function show(v) { if (r.label) r.label.textContent = fmt(v); }
+    el.addEventListener("input", function () {
+      if (r.clamp) {
+        var c = r.clamp(el.value);
+        if (String(c) !== String(el.value)) el.value = c;
+      }
+      show(el.value);
+    });
+    el.addEventListener("change", function () {
+      var v = el.value;
+      clearTimeout(r.t);
+      r.hold = new Date().getTime() + 2200;
+      r.t = setTimeout(function () {
+        apply(r.cmd(v), "已更新");
+      }, 240);
+    });
+    var hit = document.createElement("div");
+    hit.className = "hitz";
+    wrap.appendChild(hit);
+    var active = 0, mode = 0, sx = 0, sy = 0, sv = 0, width = 260, lastTouch = 0;
+    function point(e) {
+      var t = (e.touches && e.touches[0]) ||
+              (e.changedTouches && e.changedTouches[0]) || e;
+      return { x: num(t.clientX), y: num(t.clientY) };
+    }
+    function start(e) {
+      if (el.disabled) return;
+      var p = point(e);
+      active = 1; mode = 0;
+      r.drag = 0;
+      sx = p.x; sy = p.y;
+      sv = num(el.value);
+      var b = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+      width = b ? Math.max(40, b.width - 18) : 260;
+      clearTimeout(r.t);
+    }
+    function move(e) {
+      if (!active) return;
+      var p = point(e);
+      var dx = p.x - sx, dy = p.y - sy;
+      if (mode === 0) {
+        var ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
+        if (ay > 9 && ay >= ax) { mode = 2; return; }
+        if (ax < 8 || ax <= ay) return;
+        mode = 1;
+        r.drag = 1;
+      }
+      if (mode !== 1) return;
+      if (e.preventDefault) e.preventDefault();
+      var min = num(el.min), max = num(el.max), step = num(el.step) || 1;
+      var v = snapTo(sv + (dx / width) * (max - min), min, max, step);
+      if (r.clamp) v = r.clamp(v);
+      if (String(el.value) !== String(v)) {
+        el.value = v;
+        fire(el, "input");
+      }
+    }
+    function end(e) {
+      if (!active) return;
+      var was = mode === 1;
+      active = 0; mode = 0;
+      r.drag = 0;
+      if (!was) return;
+      if (num(el.value) === sv) return;
+      fire(el, "change");
+    }
+    hit.addEventListener("touchstart", function (e) { lastTouch = new Date().getTime(); start(e); }, EVO || false);
+    hit.addEventListener("touchmove", move, EVO || false);
+    hit.addEventListener("touchend", end, false);
+    hit.addEventListener("touchcancel", end, false);
+    hit.addEventListener("mousedown", function (e) {
+      if (new Date().getTime() - lastTouch < 700) return;
+      start(e);
+      function mm(ev) { move(ev); }
+      function mu(ev) {
+        document.removeEventListener("mousemove", mm);
+        document.removeEventListener("mouseup", mu);
+        end(ev);
+      }
+      document.addEventListener("mousemove", mm);
+      document.addEventListener("mouseup", mu);
+    });
+  }
+  function foldGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function foldSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function hasCls(el, c) { return (" " + el.className + " ").indexOf(" " + c + " ") >= 0; }
+  function delCls(el, c) {
+    el.className = (" " + el.className + " ").replace(" " + c + " ", " ")
+      .replace(/^\s+|\s+$/g, "");
+  }
+  function addCls(el, c) { if (!hasCls(el, c)) el.className = (el.className ? el.className + " " : "") + c; }
+  function foldApply(id, open, animate) {
+    var el = $(id), bd = $(id + "Bd");
+    if (!el || !bd) return;
+    el.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!animate) bd.style.transition = "none";
+    if (open) {
+      bd.style.maxHeight = bd.scrollHeight + "px";
+      delCls(el, "closed");
+      clearTimeout(el._ft);
+      el._ft = setTimeout(function () {
+        if (!hasCls(el, "closed")) bd.style.maxHeight = "none";
+      }, animate ? 330 : 0);
+    } else {
+      if (!bd.style.maxHeight || bd.style.maxHeight === "none") {
+        bd.style.maxHeight = bd.scrollHeight + "px";
+        bd.offsetHeight;
+      }
+      bd.style.maxHeight = "0px";
+      addCls(el, "closed");
+    }
+    if (!animate) {
+      bd.offsetHeight;
+      bd.style.transition = "";
+    }
+  }
+  function bindFold(id, key, defOpen) {
+    var el = $(id);
+    if (!el) return;
+    var saved = foldGet(key);
+    foldApply(id, saved === null ? defOpen : saved === "1", false);
+    bindTap(id + "Hd", function () {
+      var open = !hasCls(el, "closed");
+      foldApply(id, !open, true);
+      foldSet(key, open ? "0" : "1");
+    });
+  }
+  function initFolds() {
+    bindFold("foldMain", "qc.fold.main", false);
+    bindFold("foldCur", "qc.fold.cur", false);
+    bindFold("foldHz", "qc.fold.hz", false);
+    bindFold("foldCpu", "qc.fold.cpu", false);
+    bindFold("foldExtreme", "qc.fold.ext", false);
+  }
+  function openUrl(u) {
+    exec("am start -a android.intent.action.VIEW -d '" + u + "'", function (r) {
+      if (r && r.code === 0) return;
+      var w = null;
+      try { w = window.open(u, "_blank"); } catch (e) {}
+      if (!w) { try { location.href = u; } catch (e2) {} }
+    });
+  }
+  function bindTap(id, fn) {
+    var el = $(id);
+    if (el && el.addEventListener) el.addEventListener("click", fn);
+  }
+  function boot() {
+    initFolds();
+    if (!bridgeName()) {
+      fail("当前环境没有网页控制接口。请在 KernelSU / APatch / MMRL 里打开本模块的 WebUI；" +
+           "如果是 Magisk，请用终端执行：su -c sh /data/adb/modules/quickcharge/action.sh");
+    } else {
+      info("正在连接模块…");
+      connect(function (cok) {
+        if (!cok) {
+          fail("命令通道没能建立（已自动试过三种调用方式）。点下面的“环境自检”可以看到每一步的原始返回，截图反馈即可。");
+          diag(false);
+          return;
+        }
+        detectMod(function (ok) {
+          if (!ok) {
+            fail("命令通道正常，但没找到模块目录。请确认 Quick Charge 已安装并启用后点“重挂”。");
+            return;
+          }
+          load();
+          timer = setInterval(load, 30000);
+          startPower();
+        });
+      });
+    }
+    bindTap("modeSeg", function (e) {
+      var b = closest(e.target, "button");
+      if (!b) return;
+      var m = b.getAttribute("data-mode");
+      apply(m === "static" ? "temp static" : (m === "charge" ? "temp charge" : "temp off"),
+        m === "static" ? "已切到全局运行" : (m === "charge" ? "已切到仅充电" : "已关闭温控改写"));
+    });
+    bindRange("aggr", "aggrV",
+      function (v) { return v + "/10 · 温差 " + (Number(v) + 2) + "℃"; },
+      function (v) { return "gear " + v; });
+    bindRange("wall", "wallV", function (v) { return v + "℃"; },
+      function (v) { return "wall " + v; });
+    bindRange("curredge", "curredgeV",
+      function (v) { return Number(v) === 0 ? "顶墙" : "距墙 " + v + "℃"; },
+      function (v) { return "curredge " + v; });
+    bindRange("shell", "shellV", function (v) { return v + "℃"; },
+      function (v) { return "base " + v; });
+    bindRange("curr", "currV", function (v) { return Number(v) > 0 ? v + "mA" : "不限"; },
+      function (v) { return "curr " + (Number(v) > 0 ? v : "off"); });
+    bindRange("batt", "battV", function (v) { return v + "℃"; },
+      function (v) { return "battery " + v; });
+    bindRange("soc", "socV", function (v) { return v + "℃"; },
+      function (v) { return "sentinel " + v; });
+    bindRange("coreT", "coreTV", function (v) { return v + "℃"; },
+      function (v) { return "core " + v; });
+    $("coreOff").addEventListener("change", function () {
+      var off = this.checked;
+      $("coreT").disabled = off;
+      if (off) {
+        apply("core off", "已关闭 CPU 伪装");
+      } else {
+        apply("core " + $("coreT").value, "CPU 伪装 -> " + $("coreT").value + "℃");
+      }
+    });
+    $("wallOff").addEventListener("change", function () {
+      var off = this.checked;
+      $("wall").disabled = off;
+      apply(off ? "wall off" : ("wall " + $("wall").value), off ? "温度墙已关闭" : "温度墙已开启");
+    });
+    bindRange("battSp", "battSpV", function (v) { return v + "℃"; },
+      function (v) { return "batt " + v; });
+    $("battSpOff").addEventListener("change", function () {
+      var el = this, off = el.checked;
+      if (!off) {
+        ask("开启后系统与充电都按伪装温度判断电池，只有在真实温度 ≥46℃ 时才强制撤销。\n\n真实高温下继续大电流充电会加速析锂，可能导致鼓包，且不在保修范围。确定开启？",
+          function () {
+            $("battSp").disabled = false;
+            apply("batt " + $("battSp").value, "电池 NTC 伪装 -> " + $("battSp").value + "℃");
+          },
+          function () { el.checked = true; });
+        return;
+      }
+      $("battSp").disabled = true;
+      apply("batt off", "电池 NTC 伪装已关闭");
+    });
+    $("thermalOff").addEventListener("change", function () {
+      var el = this, off = el.checked;
+      if (off) {
+        ask("停用 horae 后系统不再按温度降频，机身会更热且没有降频兜底。\n\n确定停用？",
+          function () { apply("thermal off", "系统热管理已停用"); },
+          function () { el.checked = false; });
+        return;
+      }
+      apply("thermal on", "系统热管理已恢复");
+    });
+    bindRange("hz", "hzV",
+      function (v) { return hzLabel(v); },
+      function (v) { return Number(v) === 0 ? "hz off" : "hz " + HZ_STEPS[Number(v)]; },
+      hzClamp);
+    $("hz").addEventListener("input", function () {
+      hzTick(num(this.value));
+    });
+    $("hzHard").addEventListener("change", function () {
+      var el = this;
+      var on = el.checked;
+      if (!MOD) { el.checked = !on; fail("还没连上模块，稍等一秒再试"); return; }
+      if (!on) {
+        hzHard = false;
+        apply("hzguard off", "已关闭强制锁定");
+        return;
+      }
+      el.checked = false;
+      ask("强制锁定会关闭系统的内容帧率匹配（视频会自动降到 24/30fps 省电）。\n开启后耗电与发热会上升，确认开启？", function () {
+        el.checked = true;
+        hzHard = true;
+        apply("hzguard on", "已开启强制锁定");
+      });
+    });
+    bindTap("joinQun", function () { openUrl(QUN_URL); });
+    bindTap("followAuthor", function () { openUrl(COOLAPK_URL); });
+    var askM = $("ask");
+    if (askM && askM.addEventListener) {
+      askM.addEventListener("touchmove", function (e) {
+        if (e.cancelable) e.preventDefault();
+      }, false);
+    }
+    bindTap("boost", function () {
+      var on = !!(S && Number(S.curr_edge) === 0 && Number(S.fast_cap) >= 85);
+      if (!on) {
+        ask("确定开启暴力模式？", function () {
+          apply("boost on", "已开启暴力模式");
+        });
+        return;
+      }
+      apply("boost off", "已关闭暴力模式");
+    });
+    bindTap("refresh", function () {
+      load(function (ok) { toast(ok ? "已刷新" : "刷新失败", !ok); });
+    });
+    bindTap("rebuild", function () {
+      var nm = S && S.mount_mode && S.mount_mode.indexOf("nomount") === 0;
+      toast(nm ? "正在重新生成并注入…" : "正在重挂…");
+      apply("rebuild", nm ? "已重新注入（无挂载）" : "已重新挂载");
+    });
+    bindTap("diagBtn", function () { diag(false, true); });
+    bindTap("restart", function () {
+      apply("restart", "守护已重启");
+    });
+    bindTap("diagRun", function () { diag(false); });
+    bindTap("diagHide", function () { $("diagCard").style.display = "none"; });
+    bindTap("diagCopy", function () {
+      var t = $("diagPre").textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(function () { toast("已复制"); },
+          function () { toast("复制失败，请截图", true); });
+      } else {
+        toast("请长按文字手动复制", true);
+      }
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) {
+        clearInterval(timer); timer = null;
+        stopPower();
+      } else if (MOD) {
+        load();
+        if (!timer) timer = setInterval(load, 30000);
+        startPower();
+      }
+    });
+  }
+  function closest(el, tag) {
+    tag = tag.toUpperCase();
+    while (el && el.nodeType === 1) {
+      if (el.tagName === tag) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();</script>
+</body>
+</html>
