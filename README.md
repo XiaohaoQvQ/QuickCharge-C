@@ -3,7 +3,12 @@
 用 C 重写的 QuickCharge 温控与充电守护。功能与 shell 版（`lib/qc.sh`）等价，
 把每轮循环的进程创建从 41 次降到 **0** 次，每 tick 从 9.4 ms 降到 **0.14 ms**。
 
-> shell 版见模块主仓库：`https://github.com/XiaohaoQvQ/QuickCharge`
+> shell 版见模块主仓库：[QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)
+
+> **语言说明**：本项目是**纯 C**（C99），不是 C++，也不是 C#。
+> 源码只有 `src/qcmon.c` 一个文件，用 `gcc` 编译，只包含 C 标准头
+> （`stdio.h`、`dirent.h`、`sys/mount.h` 等），没有 class / template / namespace，
+> 没有 `iostream`，也没有 .NET 运行时。
 
 ---
 
@@ -37,7 +42,7 @@ int t = read_int_file(path);
 ## 2. 两版实测对比
 
 测试环境：24 个温区 + 完整电池节点，100 轮取均值。arm64 数字来自 qemu 用户态
-（有 3-10 倍解释开销，真机落在 0.1-0.2 ms）。
+（有 3~10 倍解释开销，真机落在 0.1~0.2 ms）。
 
 | 指标 | 2.9.42 shell | 2.9.43 shell 优化 | **2.9.44 C** |
 |---|---|---|---|
