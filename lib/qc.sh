@@ -26,7 +26,7 @@ SD_SPOOF_DIR="${SD_SPOOF_DIR:-}"
 SD_SPOOF_DEF="${SD_SPOOF_DEF:-/dev/qc}"
 SD_SPOOF_FLAG="$SD_RUN/spoof.pending"
 SD_BUILT="$SD_DATA/built.id"
-SD_PS=/sys/class/power_supply
+SD_PS="${SD_PS:-/sys/class/power_supply}"
 SD_BL="${SD_BL:-/sys/class/backlight}"
 SD_FB="${SD_FB:-/sys/class/graphics/fb0/blank}"
 SD_OPLUS_CHG="${SD_OPLUS_CHG:-/sys/class/oplus_chg/battery}"
@@ -50,14 +50,17 @@ _sd_lv=3
 _sd_rot=0
 
 _sd_emit() {
-    local lv="$1" tag="$2" need
+    local lv="$1" tag="$2" need plv
     shift 2
+    plv=$lv
     case "$lv" in
-        E) need=1 ;; W) need=2 ;; D) need=4 ;; *) need=3 ;;
+        E) need=1 ;; W) need=2 ;; D) need=4 ;;
+        S) need=2; plv=I ;;   # 快照：log_level≥2 就留，日志里仍显示为 I
+        *) need=3 ;;
     esac
     [ "$_sd_lv" -ge "$need" ] || return 0
-    printf '%s %s [%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$lv" "$tag" "$*" 2>/dev/null >>"$SD_LOG"
-    [ -n "${SD_VERBOSE:-}" ] && printf '%s [%s] %s\n' "$lv" "$tag" "$*"
+    printf '%s %s [%s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$plv" "$tag" "$*" 2>/dev/null >>"$SD_LOG"
+    [ -n "${SD_VERBOSE:-}" ] && printf '%s [%s] %s\n' "$plv" "$tag" "$*"
 
     _sd_rot=$((_sd_rot + 1))
     if [ $((_sd_rot & 63)) -eq 0 ] && [ "$(wc -c 2>/dev/null <"$SD_LOG" || echo 0)" -gt 524288 ]; then
@@ -448,6 +451,7 @@ _st_hz_hard=""
 _st_hz_prev_mcfr=""
 _st_power_scale=""
 _st_batt_spoof=""
+_st_cool_guard=""
 
 sd_state_load() {
     _sd_st_loaded=1
@@ -457,7 +461,7 @@ sd_state_load() {
     _st_curr_edge=""
     _st_log_level=""; _st_tick=""; _st_defrev=""
     _st_hz=""; _st_hz_prev_peak=""; _st_hz_prev_min=""; _st_hz_hard=""; _st_hz_prev_mcfr=""; _st_power_scale=""
-    _st_cells_mode=""; _st_batt_spoof=""
+    _st_cells_mode=""; _st_batt_spoof=""; _st_cool_guard=""
     [ -f "$SD_STATE" ] || { _st_log_level=3; _sd_lv=3; return 0; }
     local k v
     while IFS='=' read -r k v; do
@@ -499,6 +503,7 @@ sd_state_get() {
         power_scale)    printf '%s' "${_st_power_scale:-${2:-100}}" ;;
         cells_mode)     printf '%s' "${_st_cells_mode:-${2:-auto}}" ;;
         batt_spoof)     printf '%s' "${_st_batt_spoof:-${2:-off}}" ;;
+        cool_guard)     printf '%s' "${_st_cool_guard:-${2:-1}}" ;;
         *)              printf '%s' "${2:-}" ;;
     esac
 }
@@ -2817,6 +2822,156 @@ sd_charge_tick() {
     else
         sd_shell_emul 0
     fi
+}
+
+# ------------------------------------------------------------------ 降流解除
+# ColorOS 16 用 oplus_chg/battery/cool_down 做亮屏降流：灭屏 0，亮屏 7~13，
+# 与温度无关（实测电池 33.8℃ 照样跳到 7）。写 0 后满速立即恢复，驱动不会覆盖，
+# 只在屏幕状态等事件时重算，因此按 tick 复查即可。
+SD_COOL_NODE=""
+_sd_cool_none=0
+_sd_cool_log=""
+
+sd_cool_node() {
+    local p
+    [ "$_sd_cool_none" = 1 ] && return 1
+    if [ -n "$SD_COOL_NODE" ] && [ -e "$SD_COOL_NODE" ]; then return 0; fi
+    for p in "$SD_OPLUS_CHG/cool_down" "$SD_OPLUS_CHG/oplus_cool_down" \
+             /sys/class/oplus_chg/charger/cool_down; do
+        [ -e "$p" ] && { SD_COOL_NODE=$p; return 0; }
+    done
+    _sd_cool_none=1
+    return 1
+}
+
+sd_cool_tick() {
+    local want cur bt cap
+
+    [ "$(sd_state_int cool_guard 1 0 1)" = 1 ] || return 0
+
+    if ! sd_cool_node; then
+        if [ "$_sd_cool_log" != none ]; then
+            sd_warn charge "降流解除：本机没有 cool_down 节点，跳过"
+            _sd_cool_log=none
+        fi
+        return 0
+    fi
+
+    sd_batt_status_v
+    case "$_sd_rv" in Charging|Full) ;; *) return 0 ;; esac
+
+    # 灭屏时驱动自己给 0，不插手
+    [ "$_sd_screen_on" = 1 ] || return 0
+
+    bt=""
+    sd_batt_temp_v && bt=$_sd_rv
+    case "$bt" in ''|*[!0-9]*) bt=0 ;; esac
+    if [ "$bt" -ge 48 ]; then
+        if [ "$_sd_cool_log" != hot ]; then
+            sd_warn charge "降流解除：电池 ${bt}℃ 过热，交还驱动控制"
+            _sd_cool_log=hot
+        fi
+        return 0
+    fi
+
+    cap=""
+    sd_ps_attr_v capacity && cap=$_sd_rv
+    case "$cap" in ''|*[!0-9]*) cap=0 ;; esac
+
+    if [ "$bt" -ge 45 ]; then want=2
+    elif [ "$cap" -ge 85 ]; then want=1
+    else want=0
+    fi
+
+    sd_read1 "$SD_COOL_NODE" || return 0
+    cur=$_sd_rv
+    case "$cur" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$cur" = "$want" ] && return 0
+
+    if printf '%s\n' "$want" >"$SD_COOL_NODE" 2>/dev/null; then
+        if [ "$_sd_cool_log" != "$want" ]; then
+            sd_info charge "降流解除：cool_down ${cur} → ${want}（电池 ${bt}℃ 电量 ${cap}%）"
+            _sd_cool_log=$want
+        fi
+    elif [ "$_sd_cool_log" != fail ]; then
+        sd_warn charge "降流解除失败：$SD_COOL_NODE 写不进去"
+        _sd_cool_log=fail
+    fi
+}
+
+# ---------------------------------------------------------------- 充电快照
+
+# 以前查一次充电问题要 cat 七八个节点：usb 电压、电流上限、电池电流、
+# cool_down、voocchg_ing、charge_technology…… 这里压成一行，状态一变就落
+# 日志，充电中每 10 分钟补一条，日志自己就是时间线。
+_sd_chg_last=""
+_sd_chg_last_st=""
+_sd_chg_at=0
+_sd_chg_scan=0
+
+_sd_chg_fmt() {
+    awk -v a="$1" -v b="$2" -v c="$3" -v d="$4" 'BEGIN {
+        printf "%s %s %s %s",
+            (a ~ /^-?[0-9]+$/ ? sprintf("%.2f", a / 1000000) : "?"),
+            (b ~ /^-?[0-9]+$/ ? sprintf("%.2f", b / 1000000) : "?"),
+            (c ~ /^-?[0-9]+$/ ? sprintf("%.3f", c / 1000000) : "?"),
+            (d ~ /^-?[0-9]+$/ ? sprintf("%d", d / 1000) : "?")
+    }'
+}
+
+sd_chg_line() {
+    local cap vbat ibat vusb imax type cool vooc tech bt st f
+    st=""; sd_batt_status_v && st=$_sd_rv
+    cap=""; sd_ps_attr_v capacity && cap=$_sd_rv
+    vbat=""; sd_ps_attr_v voltage_now && vbat=$_sd_rv
+    ibat=""; sd_ps_attr_v current_now && ibat=$_sd_rv
+    vusb=$(cat "$SD_PS/usb/voltage_now" 2>/dev/null)
+    imax=$(cat "$SD_PS/usb/current_max" 2>/dev/null)
+    type=$(cat "$SD_PS/usb/type" 2>/dev/null)
+    cool=$(cat "$SD_OPLUS_CHG/cool_down" 2>/dev/null)
+    vooc=$(cat "$SD_OPLUS_CHG/voocchg_ing" 2>/dev/null)
+    tech=$(cat "$SD_OPLUS_CHG/charge_technology" 2>/dev/null)
+    bt=""; sd_batt_temp_v && bt=$_sd_rv
+
+    f=$(_sd_chg_fmt "$vusb" "$imax" "$vbat" "$ibat")
+    # shellcheck disable=SC2086
+    set -- $f
+    printf 'vusb=%sV imax=%sA vbat=%sV ibat=%smA %s%% %s℃ cool=%s vooc=%s tech=%s type=%s scr=%s status=%s' \
+        "$1" "$2" "$3" "$4" "${cap:-?}" "${bt:-?}" "${cool:-?}" "${vooc:-?}" \
+        "${tech:-?}" "${type:-?}" "${_sd_screen_on:-?}" "${st:-?}"
+}
+
+sd_chg_snapshot() {
+    local charging="${1:-0}" line st now why
+    [ "${_sd_lv:-3}" -ge 2 ] || return 0
+    now=$(date +%s)
+    # 插拔的瞬间必须记下来，只有"状态没变"时才按 30s 节流
+    if [ "$charging" = "${_sd_chg_last_chg:-x}" ] && [ "$charging" != 1 ] && \
+       [ $((now - _sd_chg_scan)) -lt 30 ]; then
+        return 0
+    fi
+    _sd_chg_scan=$now
+    _sd_chg_last_chg=$charging
+
+    st=""; sd_batt_status_v && st=$_sd_rv
+    line=$(sd_chg_line)
+
+    why=变化
+    if [ "$st" != "$_sd_chg_last_st" ]; then
+        _sd_chg_last_st=$st
+        if [ "$charging" = 1 ]; then why=插电; else why=停充; fi
+    fi
+
+    if [ "$line" = "$_sd_chg_last" ]; then
+        if [ "$charging" = 1 ] && [ $((now - _sd_chg_at)) -ge 600 ]; then
+            _sd_emit S chg "定时 $line"
+            _sd_chg_at=$now
+        fi
+        return 0
+    fi
+    _sd_emit S chg "$why $line"
+    _sd_chg_last=$line
+    _sd_chg_at=$now
 }
 
 SD_MCFR_KEY=match_content_frame_rate
