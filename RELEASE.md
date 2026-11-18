@@ -1,83 +1,104 @@
-# Quick Charge v2.9.55-c（C 守护版）
+# Quick Charge v2.9.56-c（C 守护版）
 
-> 对应包：`QuickCharge-v2.9.55-c.zip` · `versioncode 29551`
+> 对应包：`QuickCharge-v2.9.56-c.zip` · `versioncode 29561`
 
-解决「打游戏只有 5~10W」。根因是降流解除被屏幕判定锁死：判成灭屏就直接
-return，`cool_down` 停在驱动给的 7~13 没人清。shell 版做了同样的修改。
+解决「功率曲线不稳定、乱跳」。四处叠加：快照把读数噪声当成状态变化、
+亮屏快充挑错了 FCC 节点、回写时贴着目标值和驱动抢、面板曲线把 ±0.3W 的
+抖动放大成整屏锯齿。shell 版做了同样的修改。
 
 ## 一、现场
 
-2 小时 15 分的真机日志（PJD110，10:52 插电 5%，12:42 拔 95%）：
+PJD110，73% → 77%，10:47~10:50 的一段日志：
 
-| 项 | 全程读数 |
+| 项 | 读数 |
 |---|---|
-| `scr` | **一直是 0** |
-| `cool` | 5 / 7 / 8 / 10，一次 0 都没有 |
-| `ibat` | −1 ~ −5mA |
-| `vusb` / `imax` | 8.2~9.0V / 2.00A |
+| 快照间隔 | **3 秒**，每轮都判成「变化」 |
+| `ibat` | −5.8A → −4.3A → −4.9A → −2.9A，同一分钟里来回 |
+| `vbat` | 4.470 ~ 4.509V 之间爬 |
+| 接管日志 | 「已接管（回写 FCC，目标 **2000mA**）」重复 10 次 |
+| `scr` | 1 / 0 交替（确实在熄屏亮屏） |
+| `cool` | 全程 0，降流解除是好的 |
 
-人在用手机，屏幕不可能是灭的——判定错了。`cool_guard` 开着，但
-「降流解除：cool_down」一条日志都没有，说明写节点那一行从未执行到。
+## 二、四个来源
 
-## 二、改法
+**1. 判重比的是整行**
 
-**1. `cool_tick` 去掉屏幕依赖**
+`chg_snapshot` 在充电中用整行比较，`vbat` 每轮爬 10~20mV、`ibat` 抖几十 mA，
+于是每轮都算变化，3 秒一条。
 
-灭屏时驱动本来给 0，写 0 是空操作；只有亮屏被抬到 7~13 才需要干预。
-温度保护保留：电池 ≥45℃ 写 2，≥48℃ 交还驱动。
+**2. FCC 节点选到了 `usb/current_max`**
 
-**2. 亮度节点取最大值**
+`scr_fcc_node` 的优先级是 `constant_charge_current_max` → `battery/current_max`
+→ `usb/current_max`，漏了欧加真正的充电电流上限 **`chg_current_max`**。PJD110
+上前两个不存在，落到 `usb/current_max`（充电器能力值，固定 2A），学到的目标
+就成了 2000mA，接管等于反向限流。
 
-新增 `screen_scan()` 一次收集所有 `*/actual_brightness` 与 `*/brightness`，
-`screen_sample()` 取其中的最大值，**全部为 0 才算灭屏**。原来的做法是
-"取第一个存在的节点"，PJD110 的 `panel0-backlight/actual_brightness` 恒为 0，
-排在最前就被选中，于是永远判灭屏。
+顺带修了一个一直没生效的兜底：路径后缀长度写成 11 / 21，而
+`"/current_max"` 是 12 字节、`"/constant_charge_current"` 是 24 字节，
+`strcmp` 永远不相等，这条兜底从上线起就没命中过。
 
-**3. `next_tick` 充电即 3s**
+**3. 贴着目标值反复写**
 
-原来是 `charging && g_screen_on` 才压到 2s，现在只要充电且 `cool_guard` 就
-压到 3s，不再看屏幕。
+`cur >= tgt` 才跳过，差 1mA 就写。驱动也在动态算 FCC，两边互抢，电流两档互跳。
 
-**4. `chg_current` 的可信度**
+**4. 曲线纵轴贴 min~max**
 
-`bcc_parms` 第 9 段小于 50mA 时视为噪声，继续比 `current_now` /
-`bms/current_now` / `battery/current_avg`，取绝对值最大的。
+采样 3 秒一个点，纵轴用窗口最小/最大值做满量程，±0.3W 的差别被拉成满屏锯齿。
 
-**5. 启动记一条屏幕判定**
+## 三、改法
 
-```
-I [daemon] 屏幕 判定=灭 节点数=1
-```
+| 改动 | 说明 |
+|---|---|
+| 判重 | 充电/未充电统一用状态签名：电量 5%、温度 2℃、电压 100mV、电流 200mA 归并 |
+| FCC 节点 | 补 `chg_current_max`，`usb/current_max` 降为兜底；同时修好后缀长度判断 |
+| 回写死区 | 只有 `cur < tgt × 3/4` 才写，不再贴着目标抢节点 |
+| 熄屏释放 | FCC 路径延迟 30 秒再还原；内核参数路径仍立即还原 |
+| 接管日志 | 带节点名与实读值：`目标 2850mA，节点 chg_current_max 实读 1400mA` |
+| 功率曲线 | 三点中值 + 纵轴至少 10W 跨度 + 末点圆点 |
+| 版本号 | `VER` 改为编译期从 `module.prop` 注入，不再写死 2.9.49 |
 
-## 三、测试
+`qcmon` 已按新代码重新交叉编译（arm64 静态），两个仓库的二进制字节一致。
 
-`c-test` 67 通过，其中「灭屏 → 不干预」按新语义改为「灭屏也解除」。
+## 四、能预期到什么
 
-其余套件（shell 侧）：`cool-unit` 12、`chg-unit` 23、`zone-rank` 6、
-`mount-unit` 4、`sim` 621。
+- 充电日志从「每 3 秒一条」降到「档位变化才记」
+- 面板曲线平台段接近直线，降档台阶仍清楚
+- 接管日志的目标值不再是 2000mA（除非这台机器 FCC 真是 2A）
+- 电流不再在 4.8A / 5.7A 之间来回
 
-## 四、升级
+## 五、测试
+
+| 套件 | 结果 |
+|---|---|
+| `c-test` | 67 通过 |
+| `chg-unit` | 24 通过（新增 1 条：充电时电流跨档才追加） |
+| `cool-unit` | 15 通过（新增 3 条：FCC 25% 死区） |
+| `zone-rank` | 6 通过 |
+| `mount-unit` | 4 通过 |
+| `sim` | 621 通过 |
+
+## 六、升级
 
 直接覆盖安装，配置、日志、已调参数全部保留。
 
-- 2.9.54-c → 2.9.55-c：`versioncode` 29541 → 29551
+- 2.9.55-c → 2.9.56-c：`versioncode` 29551 → 29561
 
-## 五、文件
+## 七、文件
 
 | 项 | 值 |
 |---|---|
-| 大小 | 406,301 字节 |
-| 文件数 | 20（含 `bin/qcmon`） |
+| 大小 | 407,514 字节 |
+| 文件数 | 20 |
 | 最低要求 | Magisk / KernelSU / APatch 任一 |
-| 架构 | arm64-v8a |
+| 架构 | arm64（含静态 qcmon） |
 
-## 六、校验值
+## 八、校验值
 
 ```
-834a5728d03d26ee3af4efc1d495ec0fd1ba0cdb0b2dcb0ae597d941eefa3e7e  QuickCharge-v2.9.55-c.zip
+be216a29df896cdcf1f443caeb0fbff99855dd6d9053b27244adeb4a8c751b7c  QuickCharge-v2.9.56-c.zip
 ```
 
-## 七、另一个版本
+## 九、另一个版本
 
-同版本另有 shell 版 `QuickCharge-v2.9.55.zip`，逻辑改动完全一致，详见
-[QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)。
+同版本另有 shell 版 `QuickCharge-v2.9.56.zip`，五处改动完全一致，
+详见 [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)。
