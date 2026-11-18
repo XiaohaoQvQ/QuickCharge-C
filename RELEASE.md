@@ -1,76 +1,83 @@
-# Quick Charge v2.9.54-c（C 守护版）
+# Quick Charge v2.9.55-c（C 守护版）
 
-> 对应包：`QuickCharge-v2.9.54-c.zip` · `versioncode 29541`
+> 对应包：`QuickCharge-v2.9.55-c.zip` · `versioncode 29551`
 
-修两个日志缺陷，来自一份 26 分钟的真机日志。温控、充电策略没有改动，shell 版做了同样的修改。
+解决「打游戏只有 5~10W」。根因是降流解除被屏幕判定锁死：判成灭屏就直接
+return，`cool_down` 停在驱动给的 7~13 没人清。shell 版做了同样的修改。
 
-## 一、未充电时快照刷屏
+## 一、现场
 
-**现象**：灭屏待机 26 分钟写了 52 条快照，几乎全是这样：
+2 小时 15 分的真机日志（PJD110，10:52 插电 5%，12:42 拔 95%）：
 
-```
-22:04:15 vusb=0.00V imax=0.50A vbat=4.341V ibat=0mA 100% 33℃ ... Discharging
-22:04:47 vusb=0.00V imax=0.50A vbat=4.366V ibat=0mA 100% 33℃ ... Discharging
-```
-
-**原因**：判重比整行字符串，`vbat` 抖几十 mV 就算"变化"，"未充电且不变不写"永远不成立。
-
-**改法**：判重分两套。
-
-| 状态 | 判据 |
+| 项 | 全程读数 |
 |---|---|
-| 充电中 | 整行比较 |
-| 未充电 | 只比状态签名：状态、电量（5% 归并）、温度（2℃ 归并）、vusb、imax、type、cool、vooc、tech、屏幕 |
+| `scr` | **一直是 0** |
+| `cool` | 5 / 7 / 8 / 10，一次 0 都没有 |
+| `ibat` | −1 ~ −5mA |
+| `vusb` / `imax` | 8.2~9.0V / 2.00A |
 
-## 二、`ibat` 恒为 0mA
+人在用手机，屏幕不可能是灭的——判定错了。`cool_guard` 开着，但
+「降流解除：cool_down」一条日志都没有，说明写节点那一行从未执行到。
 
-**现象**：快照里电池电流永远是 0，面板却显示 5-10W。
+## 二、改法
 
-**原因**：快照读 `power_supply/battery/current_now`，灭屏后不刷新；面板走 `bcc_parms`。
+**1. `cool_tick` 去掉屏幕依赖**
 
-**改法**：新增 `bcc_current()`，按 19 段逗号分隔解析 `bcc_parms` 第 9 段（mA），
-再按优先级回退：
+灭屏时驱动本来给 0，写 0 是空操作；只有亮屏被抬到 7~13 才需要干预。
+温度保护保留：电池 ≥45℃ 写 2，≥48℃ 交还驱动。
+
+**2. 亮度节点取最大值**
+
+新增 `screen_scan()` 一次收集所有 `*/actual_brightness` 与 `*/brightness`，
+`screen_sample()` 取其中的最大值，**全部为 0 才算灭屏**。原来的做法是
+"取第一个存在的节点"，PJD110 的 `panel0-backlight/actual_brightness` 恒为 0，
+排在最前就被选中，于是永远判灭屏。
+
+**3. `next_tick` 充电即 3s**
+
+原来是 `charging && g_screen_on` 才压到 2s，现在只要充电且 `cool_guard` 就
+压到 3s，不再看屏幕。
+
+**4. `chg_current` 的可信度**
+
+`bcc_parms` 第 9 段小于 50mA 时视为噪声，继续比 `current_now` /
+`bms/current_now` / `battery/current_avg`，取绝对值最大的。
+
+**5. 启动记一条屏幕判定**
 
 ```
-bcc_parms → battery/current_now → bms/current_now → battery/current_avg
+I [daemon] 屏幕 判定=灭 节点数=1
 ```
 
-这是 C 版**第一次**读 bcc——之前完全没有这段解析，双电芯机器上的电流只能靠
-`current_now`，灭屏就是 0。
+## 三、测试
 
-## 测试
+`c-test` 67 通过，其中「灭屏 → 不干预」按新语义改为「灭屏也解除」。
 
-`c-test` 67 通过，其中新增两条：
+其余套件（shell 侧）：`cool-unit` 12、`chg-unit` 23、`zone-rank` 6、
+`mount-unit` 4、`sim` 621。
 
-```
-ok   current_now=-3mA 时用 bcc 的 -350mA
-ok   灭屏 current_now=0 时用 bcc
-```
-
-其余套件：`chg-unit` 22、`cool-unit` 9、`zone-rank` 6、`mount-unit` 4、`sim` 621。
-
-## 升级
+## 四、升级
 
 直接覆盖安装，配置、日志、已调参数全部保留。
 
-- 2.9.53-c → 2.9.54-c：`versioncode` 29531 → 29541
+- 2.9.54-c → 2.9.55-c：`versioncode` 29541 → 29551
 
-## 文件
+## 五、文件
 
 | 项 | 值 |
 |---|---|
-| 大小 | 405,168 字节 |
+| 大小 | 406,301 字节 |
 | 文件数 | 20（含 `bin/qcmon`） |
 | 最低要求 | Magisk / KernelSU / APatch 任一 |
 | 架构 | arm64-v8a |
 
-## 校验值
+## 六、校验值
 
 ```
-1aae740fcb30af6b06c0de59265a280a5c8cb6cb6dd6d1c4ffa286ad98dca2d6  QuickCharge-v2.9.54-c.zip
+834a5728d03d26ee3af4efc1d495ec0fd1ba0cdb0b2dcb0ae597d941eefa3e7e  QuickCharge-v2.9.55-c.zip
 ```
 
-## 另一个版本
+## 七、另一个版本
 
-同版本另有 shell 版 `QuickCharge-v2.9.54.zip`，逻辑改动完全一致，详见
+同版本另有 shell 版 `QuickCharge-v2.9.55.zip`，逻辑改动完全一致，详见
 [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)。
