@@ -1,31 +1,32 @@
-# Quick Charge v2.9.66-c（C 版）
+# Quick Charge v2.9.67-c（C 版）
 
-> 对应包：`QuickCharge-v2.9.66-c.zip` · `versioncode 29614`
+> 对应包：`QuickCharge-v2.9.67-c.zip` · `versioncode 29616`
 
-与 shell 版同步：「真实」格下只写温度点；协议判定改成 `tech` 优先。
+面板三处收敛：协议不再上屏、核心参数去掉操作提示、状态结论行居中。
 
-## 一、真实读数来源
+## 一、不再显示协议
 
-`守护读数 · batt` / `现场直读 · batt` → 直接显示 `batt`。
+「实时功耗」标题右侧的标签去掉了 `私有快充` / `公有快充` / `PD 快充`：
 
-## 二、协议判定顺序
+| 以前 | 现在 |
+|---|---|
+| `高通 · 私有快充` | `高通` |
+| `高通 · PD 快充` | `高通` |
+| `未接充电器` | `未接充电器`（保留） |
 
-欧加私有协议在线时 `usb/type` 也可能写 `USB_PD`，旧逻辑先看类型串，直接判 PD 并返回，
-`tech=8` 永远轮不到。新顺序：
+`proto` 的判定逻辑一点没动，日志 `proto=` 照旧记录，只是不上屏——显示器握手结果容易让人误以为功率被限制，
+真正要看的还是电流和功率。
 
-1. `charge_technology` 1~13 → 私有
-2. 类型串 VOOC / DART / Flash → 私有（压过 `tech=14`）
-3. `voocchg_ing=1` → 私有
-4. 类型串 PPS / UFCS → 公有
-5. `tech≥14` → 公有
-6. 类型串 PD → PD
-7. 协商 ≥8V 且 ≥5A → 私有
-8. 其余 → `unknown`
+## 二、核心参数去掉拖动提示
 
-C 端 `chg_proto()` 增加 `rtype` 参数，`chg_line` 与 env 头都读 `usb/real_type`，
-日志行加 `rtype=`。
+删掉展开后的第一句 `拖动调整，松手生效；滑页面扫到不会误改。`，卡片从「温控档位」直接开始。
+滑块本身行为不变。
 
-## 三、验证
+## 三、「真实 X℃ → 系统看到 Y℃」居中
 
-新增 `type=USB_PD + tech=8 → vooc`、`type=USB_PD 无 tech → pd` 等用例；
-`c-test` 83、`chg-unit` 53、`cool` 16、`mount` 4、`zone` 6、`sim` 621 全通过。
+`.sum` 加 `text-align:center`，那行结论与上方四格对齐居中，不再左对齐悬在卡片一侧。
+
+## 验证
+
+`c-test` 83、`chg-unit` 53、`cool` 16、`mount` 4、`zone` 6、`sim` 621 全通过；
+420px 渲染实测：标签只剩 `高通`、结论行 `text-align: center`、核心参数首项为「温控档位」且无提示块。
