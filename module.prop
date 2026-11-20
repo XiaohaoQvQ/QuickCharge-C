@@ -1,7 +1,7 @@
 id=quickcharge
 # 源码完全公开 · 禁止商用与非法用途
 name=Quick Charge
-version=2.9.68-c
-versioncode=29618
+version=2.9.69-c
+versioncode=29620
 author=Xiaohao
 description=QC·欧加真温控与充电改写
