@@ -14,7 +14,7 @@
 
 ## 1. 为什么要有 C 版
 
-这个守护进程的工作极其简单：每 3~15 秒读几十个 sysfs 小文件，算一遍目标温度，
+这个守护进程的工作极其简单：每 3-15 秒读几十个 sysfs 小文件，算一遍目标温度，
 偶尔写几个节点。**在这种负载下，成本几乎全在“启动开销”上，而不是 CPU 算力。**
 
 shell 版的结构决定了它绕不开这个成本：
@@ -48,7 +48,7 @@ int t = read_int_file(path);
 |---|---|---|---|
 | 每 tick CPU | 9.4 ms | 1.3 ms | **0.14 ms** |
 | 每 tick fork | 41 | 4（首轮后 1） | **0** |
-| 常驻内存 RSS | 3~5 MB | 3~5 MB | **988 KB** |
+| 常驻内存 RSS | 3-5 MB | 3-5 MB | **988 KB** |
 | 其中私有脏页 | — | — | **96 KB** |
 | 日均 CPU（tick=15s） | 约 54 秒 | 约 7 秒 | **约 1 秒** |
 | 包体积 | 67 KB | 67 KB | 390 KB |
@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-v2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `2.9.72-c`，与 shell 版 `2.9.72` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -84,13 +84,13 @@ v2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后�
 
 **安全**
 - 熔断三段式：触发 → 暂停伪装 → 回差 3℃ 复查 → 自动恢复
-- 伪装值范围校验（20~100℃）
+- 伪装值范围校验（20-100℃）
 - 退出时还原所有被改写节点
 
 **亮屏快充**
 - 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试）
 - 内核不支持时回写到 FCC，并记录原始值用于还原
-- 按电池温度三档：≤38℃ 全额、38~41℃ 七成、>41℃ 放弃接管（交回系统策略）
+- 按电池温度三档：≤38℃ 全额、38-41℃ 七成、>41℃ 放弃接管（交回系统策略）
 
 **其他**
 - 遥测写入 `run/sensor`（7 字段，面板直接读）
@@ -160,7 +160,7 @@ aarch64-linux-gnu-gcc -Os -static -no-pie -s \
 
 ## 6. 测试
 
-`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **46 项**。
+`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **78 项**。
 x86 与 arm64（qemu 用户态）各跑一遍。
 
 ```sh
@@ -201,6 +201,7 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
 |---|---|
 | `SD_DATA` | 数据目录（`state.conf`、日志、心跳），默认 `/data/adb/quickcharge` |
 | `SD_MODDIR` | 模块目录，用于同步 `module.prop` 描述；兼容旧名 `MODDIR` |
+| `SD_TZ` | 时区偏移，`service.sh` 在 `exec qcmon` 前写入（如 `+0800`）；静态二进制没有 tzdata，缺了它会退回 UTC |
 | `SD_SYSROOT` | sysfs 根前缀，测试用 |
 | `SD_SPOOF_DIR` | 伪装备份与挂载记录目录 |
 | `SD_BL` | 背光节点路径，用于判断亮屏 |
@@ -220,7 +221,7 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
    shell 版一行报错还能继续跑下一轮。静态二进制没有 ASan，现场只能看日志。
 4. **不可审计是相对的**。源码在 `src/qcmon.c`，构建脚本在 `build-qcmon.sh`，
    但没有做 bit-for-bit 的可复现构建（`BuildID` 和路径会带差异）。
-5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 46 项测试双跑兜底。
+5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 78 项测试双跑兜底。
 6. **必须配合模块使用**。它读 `state.conf`、依赖模块的目录布局，不能单独跑。
 
 第 3 条是最实际的风险，也是 `service.sh` 保留 shell 回退的原因。
@@ -242,11 +243,11 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
 
 ```
 quickcharge/
-├── src/qcmon.c            C 守护源码（2239 行，单文件）
-├── build-qcmon.sh         交叉编译脚本（17 行）
-├── tests/c-test.sh        46 项冒烟测试（315 行）
+├── src/qcmon.c            C 守护源码（2982 行，单文件）
+├── build-qcmon.sh         交叉编译脚本（24 行）
+├── tests/c-test.sh        78 项冒烟测试（497 行）
 ├── bin/qcmon              arm64 静态二进制（713 KB）
-├── lib/qc.sh              shell 版核心库（3390 行，C 版的对照实现）
+├── lib/qc.sh              shell 版核心库（4147 行，C 版的对照实现）
 ├── service.sh             启动入口，检测 bin/qcmon 决定走哪条路径
 ├── action.sh              控制入口：CLI + 交互菜单
 ├── customize.sh           安装：设备检测、生成覆盖层、初始化参数
@@ -261,7 +262,28 @@ quickcharge/
 
 ---
 
-## 12. 许可
+## 12. 版本与发行版
+
+| 仓库 | 当前版本 | 包名 | versioncode |
+|---|---|---|---|
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `2.9.72` | `QuickCharge-v2.9.72.zip` | 29625 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `2.9.72-c` | `QuickCharge-v2.9.72-c.zip` | 29626 |
+
+发行版标题统一为「产品全名 + 版本号」，不带摘要：
+
+```
+Quick Charge v2.9.72-c
+```
+
+tag 为 `2.9.72-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
+两者互不覆盖，可以先 shell 后 C 反复换刷。
+
+2.9.72 起 C 守护的日志时间戳跟随本地时区：静态二进制没有 tzdata，`service.sh` 在 `exec` 前
+`export SD_TZ=$(date +%z)`，守护直接解析 `+0800`，不再退回 UTC。
+
+---
+
+## 13. 许可
 
 本模块源码完全公开，**禁止商用与非法用途**。
 
