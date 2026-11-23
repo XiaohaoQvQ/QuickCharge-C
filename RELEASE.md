@@ -1,6 +1,6 @@
-# Quick Charge v3.0.1-test-c
+# Quick Charge v3.0.1-c
 
-C 守护与 shell 版同步的 3.0.1 测试版。
+C 守护与 shell 版同步的 3.0.1 正式版。
 
 ## 电流恢复四档
 
@@ -25,9 +25,9 @@ C 守护与 shell 版同步的 3.0.1 测试版。
 
 ## 版本号
 
-`3.0.1-test-c` / `versioncode 300002`。C 用偶数通道，与 shell 版互不覆盖。
+`3.0.1-c` / `versioncode 300002`。C 用偶数通道，与 shell 版互不覆盖。
 
 ## 验证
 
 c-test 90 项、`chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
-`bin/qcmon` 已重编为 arm64 静态版，版本串 `3.0.1-test`。
+`bin/qcmon` 已重编为 arm64 静态版，版本串 `3.0.1`。
