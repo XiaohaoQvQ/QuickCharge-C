@@ -267,6 +267,27 @@ run sensor >/dev/null
 sv=$(val "$ROOT/sys/module/oplus_chg/parameters/ignore_screen_state")
 chk "息屏后还原 0" "$sv" "0"
 
+# ============================================================ 6b. FCC 回写路径：息屏保持
+# 旧实现息屏 30s 后按 scr.orig 还原，把亮屏被压的 2A 写回去，功率再也上不来。
+echo "[6b] 亮屏快充：FCC 回写（息屏不放手）"
+setup
+rm -rf "$ROOT/sys/module/oplus_chg"
+state static 30
+screen_off
+run sensor >/dev/null
+chk "息屏学到基准 3A" "$(val "$BASE/data/run/fcc.norm")" "3000"
+printf '2000000\n' >"$ROOT/sys/class/power_supply/battery/constant_charge_current_max"
+screen_on
+run sensor >/dev/null
+chk "亮屏被压后写回 3A" \
+    "$(val "$ROOT/sys/class/power_supply/battery/constant_charge_current_max")" "3000000"
+printf '2000000\n' >"$ROOT/sys/class/power_supply/battery/constant_charge_current_max"
+screen_off
+run sensor >/dev/null
+run sensor >/dev/null
+chk "息屏也顶回 3A" \
+    "$(val "$ROOT/sys/class/power_supply/battery/constant_charge_current_max")" "3000000"
+
 # ============================================================ 7. 限流
 echo "[7] 电流墙"
 setup
@@ -456,73 +477,31 @@ printf '1,2,3,4,5,6,4200,8,-350,10,11,0,12,13,14,15,16,17,18\n' \
 out=$(run chg)
 echo "$out" | grep -q 'ibat=-350mA' && ok "灭屏 current_now=0 时用 bcc" || bad "ibat 错：$out"
 
-echo "[16] 协议判定"
-# 欧加 usb/type 恒为 USB_DCP，9V/2A 是充电器上限而非 PPS 协商。
+echo "[16] 充电行只记原始节点，不下协议结论"
+# 2.9.72 起删掉协议判定：tech/type 原样记录，不再输出 proto= 字段。
 setup
 state static 30 42 off
 printf '9000000\n' >"$ROOT/sys/class/power_supply/usb/voltage_max"
 printf '7\n'       >"$ROOT/sys/class/oplus_chg/battery/charge_technology"
 out=$(run chg)
-echo "$out" | grep -q 'proto=vooc' && ok "tech=7 → vooc" || bad "tech=7 判错：$out"
+echo "$out" | grep -q 'tech=7' && ok "tech 原样记录" || bad "tech 丢失：$out"
+case "$out" in *proto=*) bad "充电行仍有 proto：$out" ;; *) ok "充电行不含 proto" ;; esac
 
 setup
 state static 30 42 off
-printf '9000000\n' >"$ROOT/sys/class/power_supply/usb/voltage_max"
-printf '14\n'      >"$ROOT/sys/class/oplus_chg/battery/charge_technology"
+printf 'USB_PD\n' >"$ROOT/sys/class/power_supply/usb/type"
+printf 'USB_PD\n' >"$ROOT/sys/class/power_supply/usb/real_type"
 out=$(run chg)
-echo "$out" | grep -q 'proto=pd' && ok "tech=14 → pd（不是 pps）" || bad "tech=14 判错：$out"
+echo "$out" | grep -q 'type=USB_PD' && ok "type 原样记录" || bad "type 丢失：$out"
 
-setup
-state static 30 42 off
-printf '1\n' >"$ROOT/sys/class/oplus_chg/battery/voocchg_ing"
-out=$(run chg)
-echo "$out" | grep -q 'proto=vooc' && ok "voocchg_ing=1 → vooc" || bad "voocchg_ing 判错：$out"
-
-# 私有协议在线时 usb/type 也可能写 USB_PD，tech 必须压过它
-setup
-state static 30 42 off
-printf '9000000\n' >"$ROOT/sys/class/power_supply/usb/voltage_max"
-printf 'USB_PD\n'  >"$ROOT/sys/class/power_supply/usb/type"
-printf 'USB_PD\n'  >"$ROOT/sys/class/power_supply/usb/real_type"
-printf '8\n'       >"$ROOT/sys/class/oplus_chg/battery/charge_technology"
-out=$(run chg)
-echo "$out" | grep -q 'proto=vooc' && ok "type=USB_PD + tech=8 → vooc（tech 优先）" || bad "类型串压过 tech：$out"
-
-setup
-state static 30 42 off
-printf '9000000\n' >"$ROOT/sys/class/power_supply/usb/voltage_max"
-printf 'USB_PD\n'  >"$ROOT/sys/class/power_supply/usb/type"
-out=$(run chg)
-echo "$out" | grep -q 'proto=pd' && ok "无 tech 时 type=USB_PD → pd" || bad "无 tech 类型串判错：$out"
-
-echo "[16b] 没插充电器不能显示成 PD"
-# voltage_max / current_max 是端口能力上限，拔线后常驻 5V/500mA（标准 SDP）
-setup
-state static 30 42 off
-printf '0\n'           >"$ROOT/sys/class/power_supply/usb/online"
-printf '5000000\n'     >"$ROOT/sys/class/power_supply/usb/voltage_max"
-printf '500000\n'      >"$ROOT/sys/class/power_supply/usb/current_max"
-printf 'Discharging\n' >"$ROOT/sys/class/power_supply/battery/status"
-rm -f "$ROOT/sys/class/power_supply/usb/voltage_now"
-out=$(run chg)
-echo "$out" | grep -q 'proto=none' && ok "online=0 → none" || bad "拔线仍判协议：$out"
-echo "$out" | grep -q 'proto=pd'   && bad "拔线仍显示 PD" || ok "拔线不显示 PD"
-
+echo "[16b] 拔线行不臆造协议"
 setup
 state static 30 42 off
 printf 'Discharging\n' >"$ROOT/sys/class/power_supply/battery/status"
 rm -f "$ROOT/sys/class/power_supply/usb/voltage_now"
 out=$(run chg)
-echo "$out" | grep -q 'proto=none' && ok "无 online 节点也无输入 → none" || bad "无输入仍判：$out"
-
-setup
-state static 30 42 off
-printf '1\n'       >"$ROOT/sys/class/power_supply/usb/online"
-printf '9000000\n' >"$ROOT/sys/class/power_supply/usb/voltage_max"
-printf '2000000\n' >"$ROOT/sys/class/power_supply/usb/current_max"
-printf '0\n'       >"$ROOT/sys/class/oplus_chg/battery/charge_technology"
-out=$(run chg)
-echo "$out" | grep -q 'proto=unknown' && ok "9V/2A 无字样 → unknown" || bad "无证据仍猜：$out"
+echo "$out" | grep -q 'status=Discharging' && ok "status 如实记录" || bad "status 丢失：$out"
+case "$out" in *proto=*) bad "拔线行仍带 proto：$out" ;; *) ok "拔线行不含 proto" ;; esac
 
 echo "[17] 输入侧实测与两侧功率"
 setup
