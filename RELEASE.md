@@ -1,29 +1,27 @@
-# Quick Charge v2.9.75-c
+# Quick Charge v3.0.0-test-c
 
-## 这次改了什么
+C 守护与 shell 版同步的 3.0 测试版。
 
-C 守护与 shell 版同步，把亮屏、息屏所有会提前降流的闸抬到熔断前 1℃（默认 47℃）。
+## 默认极限
 
-| 闸 | 旧行为 | 2.9.75-c |
-|---|---|---|
-| `curr_target` 四档 | 45℃ 就按 `lim-3` 掉到 75% | 47℃ 才降，中间保持 100% |
-| 亮屏 FCC `scr_target` | 39℃ 打七折、42℃ 直接放手 | 一直给满基准，47℃ 才放手 |
-| `scr_tick` 温度闸 | 写死 42℃ | 熔断前 1℃ |
-| `cool_tick` | 45℃ 写 `2`，48℃ 交还 | 47℃ 之前一直写 `0` |
+- `curr_target` 只分 100%/75%，到墙才降，不再 lim-3 提前掉；
+- `scr_target` 取消 38/41℃ 两档折损，熔断前 1℃ 才放手；
+- `scr_tick` 的 42℃ 硬闸抬到熔断前 1℃；
+- `cool_tick` 不再 45℃ 写 `2`，熔断前 1℃ 才交还；
+- `wall_of("60")` 与 `off` 都按无限制处理；默认 `wall=60`、`curr_edge=0`；
+- `max_mode` 字段、`max on/off` 与 `run/max.bak` 一并删除。
 
-## 按钮
+## 面板
 
-面板与 shell 版同一套：核心参数卡底部「极限充电（亮屏息屏满速）」，
-`max on|off` 会备份并恢复 `wall` / `curr_edge` / `aggr` / `fast_cap` / `temp_mode` /
-`horae` / `curr_max` / `cool_guard`。
+与 shell 版同一份 `webroot/index.html`：极限按钮、关闭温度墙、限流提前量滑块都已移除，
+熔断阈值并入核心参数。
+
+## 版本号
+
+`3.0.0-test-c` / `versioncode 300000`。3.0 起 `versioncode = (主×100 + 次)×1000 + 修订×2 + 通道`，
+C 用偶数通道。
 
 ## 验证
 
-- c-test 88 项全过，新增 `[6d]`：亮屏 45℃ 仍 6000mA、47℃ 降 4500mA；
-- `chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
-- `bin/qcmon` 已重编为 arm64 静态版，版本串 `2.9.75`。
-
-## 仍然拉不回来的情况
-
-电量 80% 以上恒压、非原装头线只给 9V/1A，这两条与模块无关。
-真实电池温度到 47℃ 会开始降流，48℃ 熔断。
+c-test 88 项、`chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
+`bin/qcmon` 已重编为 arm64 静态版，版本串 `3.0.0-test`。
