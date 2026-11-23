@@ -1,32 +1,29 @@
-# Quick Charge v2.9.74-c（C 版）
+# Quick Charge v2.9.75-c
 
-> 对应包：`QuickCharge-v2.9.74-c.zip` · `versioncode 29630`
+## 这次改了什么
 
-核心参数卡底部新增「极限充电」按钮，C 守护同步支持 `max_mode`。
+C 守护与 shell 版同步，把亮屏、息屏所有会提前降流的闸抬到熔断前 1℃（默认 47℃）。
 
-## 一、按钮做什么
+| 闸 | 旧行为 | 2.9.75-c |
+|---|---|---|
+| `curr_target` 四档 | 45℃ 就按 `lim-3` 掉到 75% | 47℃ 才降，中间保持 100% |
+| 亮屏 FCC `scr_target` | 39℃ 打七折、42℃ 直接放手 | 一直给满基准，47℃ 才放手 |
+| `scr_tick` 温度闸 | 写死 42℃ | 熔断前 1℃ |
+| `cool_tick` | 45℃ 写 `2`，48℃ 交还 | 47℃ 之前一直写 `0` |
 
-一次打开：温度墙 = 电池熔断阈值 − 1℃（默认 47℃）、限流提前量 0、档位 10、
-快充阈值 85%、仅充电生效、停 horae、息屏不 +2℃。
+## 按钮
 
-开启前的 `wall` / `curr_edge` / `aggr` / `fast_cap` / `temp_mode` / `horae`
-写入 `run/max.bak`，关闭时原样恢复。熔断阈值本身不改。
+面板与 shell 版同一套：核心参数卡底部「极限充电（亮屏息屏满速）」，
+`max on|off` 会备份并恢复 `wall` / `curr_edge` / `aggr` / `fast_cap` / `temp_mode` /
+`horae` / `curr_max` / `cool_guard`。
 
-## 二、C 守护改动
+## 验证
 
-- `conf_t` 增加 `max_mode`，启动时从 `state.conf` 解析。
-- `curr_target`：`max_mode=1` 时墙取 `battery_limit - 1`，跳过息屏 +2 与 `lim-3` 钳制。
-- `shell_target`：屏障同样取 `lim - 1`，伪装上限跟着抬高。
-- 与 shell 版共用同一份 `lib/qc.sh` 与 `action.sh`，行为一致。
+- c-test 88 项全过，新增 `[6d]`：亮屏 45℃ 仍 6000mA、47℃ 降 4500mA；
+- `chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
+- `bin/qcmon` 已重编为 arm64 静态版，版本串 `2.9.75`。
 
-## 三、测试
+## 仍然拉不回来的情况
 
-| 套件 | 结果 |
-|---|---|
-| `c-test` | 86（新增 [6c]：42℃ 墙 → 47℃，关闭回 42℃）|
-| `chg-unit` / `cool-unit` | 44 / 20 |
-| `state-unit` | 12 |
-
-## 四、边界
-
-电量 80% 以上恒压、非原装头线只给 9V/1A，这两种情况按钮也拉不回来。
+电量 80% 以上恒压、非原装头线只给 9V/1A，这两条与模块无关。
+真实电池温度到 47℃ 会开始降流，48℃ 熔断。
