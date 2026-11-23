@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `2.9.73-c`，与 shell 版 `2.9.73` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `2.9.74-c`，与 shell 版 `2.9.74` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -91,6 +91,11 @@ int t = read_int_file(path);
 - 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试），息屏还原给驱动
 - 内核不支持时回写到 FCC，并记录原始值用于还原；亮屏、息屏用同一个目标，息屏不再放手
 - 按电池温度三档：≤38℃ 全额、38-41℃ 七成、>41℃ 放弃接管（交回系统策略）
+
+**极限充电**
+- `max on|off` 一键：墙顶到熔断前 1℃、顶墙才降流、档位 10、快充 85%、停 horae
+- 开启前把墙 / 档位 / 阈值 / 模式写进 `run/max.bak`，关闭原样恢复
+- `max_mode=1` 时 `curr_target` 与 `shell_target` 用熔断阈值做屏障，息屏不 +2℃
 
 **其他**
 - 遥测写入 `run/sensor`（7 字段，面板直接读）
@@ -266,16 +271,16 @@ quickcharge/
 
 | 仓库 | 当前版本 | 包名 | versioncode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `2.9.73` | `QuickCharge-v2.9.73.zip` | 29627 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `2.9.73-c` | `QuickCharge-v2.9.73-c.zip` | 29628 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `2.9.74` | `QuickCharge-v2.9.74.zip` | 29629 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `2.9.74-c` | `QuickCharge-v2.9.74-c.zip` | 29630 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v2.9.73-c
+Quick Charge v2.9.74-c
 ```
 
-tag 为 `2.9.73-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `2.9.74-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 2.9.72 起 C 守护的日志时间戳跟随本地时区：静态二进制没有 tzdata，`service.sh` 在 `exec` 前
