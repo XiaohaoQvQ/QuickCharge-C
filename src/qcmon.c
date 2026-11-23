@@ -1083,9 +1083,24 @@ static int curr_target(int *out_wall)
     if (out_wall) *out_wall = wall;
     g_wall_eff = wall;
 
-    /* 只留最后一级：到墙才 100%→75%。curr_edge 保留兼容旧配置，不再参与分档 */
+    /* 四档：100/75/50/25，全部贴着墙走（不提前）：
+     * 墙-3℃ 起 75%，墙-1℃ 起 50%，到墙 25%。
+     * 绝对限流（curr_max）在上面已做硬上限，默认 0 = 不设。 */
+    int t75 = wall - 3; if (t75 < 30) t75 = 30;
+    int t50 = wall - 1; if (t50 <= t75) t50 = t75 + 1;
+    int t25 = wall;     if (t25 <= t50) t25 = t50 + 1;
+
     int pct = 100;
-    if (cur >= wall) pct = 75;
+    if (cur >= t75) pct = 75;
+    if (cur >= t50) pct = 50;
+    if (cur >= t25) pct = 25;
+
+    /* 滞回：降下去要回落 2℃ 才准升档，避免 1℃ 抖动把电流来回拉 */
+    if (pct > g_last_pct) {
+        if (g_last_pct == 25 && cur > t25 - 2) pct = 25;
+        else if (g_last_pct == 50 && cur > t50 - 2) pct = 50;
+        else if (g_last_pct == 75 && cur > t75 - 2) pct = 75;
+    }
     g_last_pct = pct;
     return ma * pct / 100;
 }
@@ -1411,14 +1426,9 @@ static void scr_tick(void)
     }
 
     if (!g_screen_on) {
+        /* 息屏只刷新基准（记录驱动在息屏放开的峰值），
+         * 之后跟亮屏一样继续接管：两条路径都不在息屏放手。 */
         scr_learn();
-        /* 内核参数那条一写就是「永久忽略屏幕」，息屏还原给驱动按正常 FCC 走；
-         * FCC 路径不再放手：一放手，驱动/热管理压下来的档位就没人顶回去。 */
-        char node[MAXPATH];
-        if (scr_node(node, sizeof node) == 0) {
-            if (scr_active()) { scr_release(); logged[0] = 0; }
-            return;
-        }
     }
 
     int bt = batt_temp_ps();

@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.0-test-c`，与 shell 版 `3.0.0-test` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.1-test-c`，与 shell 版 `3.0.1-test` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -78,8 +78,8 @@ int t = read_int_file(path);
 - 哨兵温区伪装时读电量计而非读自己写入的假值
 
 **限流**
-- 电流墙（按电池温度分级）
-- 提前量、MTK 偏移、息屏 +2℃
+- 电流四档：墙-3 / 墙-1 / 墙 → 75 / 50 / 25%，降档回落 2℃ 才升
+- 绝对限流 `curr_max` 默认关闭，四档只按温度走
 - 单位自动换算（µA / mA），回写保留原始量级
 
 **安全**
@@ -88,13 +88,13 @@ int t = read_int_file(path);
 - 退出时还原所有被改写节点
 
 **屏幕快充**
-- 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试），息屏还原给驱动
+- 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试），息屏不还原，与亮屏一样保持接管
 - 内核不支持时回写到 FCC，并记录原始值用于还原；亮屏、息屏用同一个目标，息屏不再放手
 - 电池温度只在熔断前 1℃（默认 47℃）放手，38/41℃ 的七折已取消
 
 **默认极限（3.0 起，没有开关）**
 - 温度墙默认 `60`：60 与 `off` 都表示不设墙，按熔断前 1℃ 处理
-- 电流只分 100% / 75% 两档，到墙才降，不再 lim-3 提前掉
+- 电流四档 100 / 75 / 50 / 25%，从墙-3℃ 起逐级降，不提前、不设绝对限流
 - 亮屏 FCC 不再 38/41℃ 折损，cool_down 不再 45℃ 写 2
 - `curr_edge` 保留为兼容字段，不参与分档；面板不再显示限流提前量
 - 熔断本身不动，真实温度到 `battery_limit` 照样撤伪装
@@ -273,16 +273,16 @@ quickcharge/
 
 | 仓库 | 当前版本 | 包名 | versioncode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.0-test` | `QuickCharge-v3.0.0-test.zip` | 300001 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.0-test-c` | `QuickCharge-v3.0.0-test-c.zip` | 300000 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.1-test` | `QuickCharge-v3.0.1-test.zip` | 300003 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.1-test-c` | `QuickCharge-v3.0.1-test-c.zip` | 300002 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v3.0.0-test-c
+Quick Charge v3.0.1-test-c
 ```
 
-tag 为 `3.0.0-test-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `3.0.1-test-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 3.0 起版本固定三段 `主.次.修订`，修订到 100 进一位（`3.0.100` 之后是 `3.1.0`）；

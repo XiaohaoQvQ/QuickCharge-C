@@ -1,27 +1,33 @@
-# Quick Charge v3.0.0-test-c
+# Quick Charge v3.0.1-test-c
 
-C 守护与 shell 版同步的 3.0 测试版。
+C 守护与 shell 版同步的 3.0.1 测试版。
 
-## 默认极限
+## 电流恢复四档
 
-- `curr_target` 只分 100%/75%，到墙才降，不再 lim-3 提前掉；
-- `scr_target` 取消 38/41℃ 两档折损，熔断前 1℃ 才放手；
-- `scr_tick` 的 42℃ 硬闸抬到熔断前 1℃；
-- `cool_tick` 不再 45℃ 写 `2`，熔断前 1℃ 才交还；
-- `wall_of("60")` 与 `off` 都按无限制处理；默认 `wall=60`、`curr_edge=0`；
-- `max_mode` 字段、`max on/off` 与 `run/max.bak` 一并删除。
+`curr_target` 从单级改回四档，阈值全部贴着墙：
 
-## 面板
+- `cur < wall-3` → 100%；
+- `cur ≥ wall-3` → 75%；
+- `cur ≥ wall-1` → 50%；
+- `cur ≥ wall` → 25%。
 
-与 shell 版同一份 `webroot/index.html`：极限按钮、关闭温度墙、限流提前量滑块都已移除，
-熔断阈值并入核心参数。
+墙默认 47℃（熔断 48℃ 前 1℃），四档落在 44 / 46 / 47℃。降档后回落 2℃ 才准升档，
+与 shell 版同一套滞回。
+
+## 绝对限流默认关闭
+
+`curr_max` 默认 0，不设 mA 上限；四档只按温度走。设了绝对限流时，屏幕快充整段不接管。
+
+## 息屏沿用亮屏设置
+
+内核 `ignore_screen_state` 路径在息屏时不再还原参数，息屏只刷新一次 FCC 基准，
+之后与亮屏一样继续接管。只有切「关闭」模式、拔线、熔断或电池到熔断前 1℃ 才还原。
 
 ## 版本号
 
-`3.0.0-test-c` / `versioncode 300000`。3.0 起 `versioncode = (主×100 + 次)×1000 + 修订×2 + 通道`，
-C 用偶数通道。
+`3.0.1-test-c` / `versioncode 300002`。C 用偶数通道，与 shell 版互不覆盖。
 
 ## 验证
 
-c-test 88 项、`chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
-`bin/qcmon` 已重编为 arm64 静态版，版本串 `3.0.0-test`。
+c-test 90 项、`chg-unit` 44、`cool-unit` 20、`state-unit` 12 全过；
+`bin/qcmon` 已重编为 arm64 静态版，版本串 `3.0.1-test`。
