@@ -1,8 +1,8 @@
 id=quickcharge
 # 源码完全公开 · 禁止商用与非法用途
 name=Quick Charge
-version=3.0.8-c
-versionCode=300016
+version=3.0.9-c
+versionCode=300018
 author=Xiaohao
 updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/update.json
 description=QC·欧加真温控与充电改写
