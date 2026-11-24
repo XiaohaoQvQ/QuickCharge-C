@@ -1209,23 +1209,37 @@ static int scr_node(char *out, size_t n)
     return -1;
 }
 
-/* 优先级：电池侧 FCC → 电池侧 current_max → 欧加 chg_current_max → USB 输入上限。
- * chg_current_max 才是欧加真正的充电电流上限；漏掉它会一路落到 usb/current_max
- * （充电器能力值，常见固定 2A），把 2A 当目标反而压功率。 */
+/* 输入侧节点：USB 端口能力、充电器能力、MTK 输入限流。写这些会重新协商 PD/VOOC，
+ * 不是改电池充电电流，绝不能拿来当屏幕快充的回写目标。 */
+static int fcc_node_is_input(const char *p)
+{
+    return strstr(p, "/usb/") || strstr(p, "/charger/") ||
+           strstr(p, "/pc_port/") || strstr(p, "/wireless/") ||
+           strstr(p, "input_current_limit");
+}
+
+/* 优先级：电池侧 FCC → 电池侧 current_max → 欧加 chg_current_max。
+ *
+ * 3.0.3 及更早把 usb/current_max 当兜底，这是错的：那是 USB 端口能力上限
+ * （PD 协商用，常见固定 2000mA），不是电池充电电流。往里写字会让充电器
+ * 重新协商，实测 OPPO/一加从 60W 掉到 37W，用户看到的就是「功率锁 30W」。
+ * 宁可判定「不支持」，也不能去碰输入侧节点。 */
 static int scr_fcc_node(char *out, size_t n)
 {
     curr_prepare();
     const char *pref[] = { "constant_charge_current_max", "battery/current_max",
-                           "chg_current_max", "usb/current_max", NULL };
+                           "chg_current_max", NULL };
     for (int p = 0; pref[p]; p++) {
         for (int i = 0; i < g_curr_n; i++) {
             if (!strstr(g_curr_nodes[i], pref[p])) continue;
+            if (fcc_node_is_input(g_curr_nodes[i])) continue;
             if (access(g_curr_nodes[i], F_OK) == 0) { snprintf(out, n, "%s", g_curr_nodes[i]); return 0; }
         }
     }
     for (int i = 0; i < g_curr_n; i++) {
         const char *q = g_curr_nodes[i];
         size_t l = strlen(q);
+        if (fcc_node_is_input(q)) continue;
         /* 长度要按整段后缀算："/current_max" 是 12 字节，"/constant_charge_current" 是 24，
          * 之前写成 11/21，strcmp 永远不等，这条兜底其实一直没生效过。 */
         if ((l > 12 && !strcmp(q + l - 12, "/current_max")) ||
@@ -1245,7 +1259,7 @@ static int scr_read_ma(const char *path, int *ma)
     return 0;
 }
 
-/* 记下息屏时的正常 FCC，作为亮屏接管的目标 */
+/* 记下正常的 FCC，作为接管目标 */
 static void scr_learn(void)
 {
     char fcc[MAXPATH];
@@ -1254,6 +1268,18 @@ static void scr_learn(void)
     if (scr_read_ma(fcc, &v) < 0) return;
     if (v < 500) return;
     if (v > 8000) v = 8000;
+
+    /* 基线绑节点：换节点（例如从 usb/current_max 换到电池侧 FCC）就作废旧基线，
+     * 否则会拿旧节点的历史最大值去压新节点。 */
+    char nodef[MAXPATH], prev[MAXPATH] = "";
+    snprintf(nodef, sizeof nodef, "%s/fcc.node", g_run);
+    read_line(nodef, prev, sizeof prev);
+    if (strcmp(prev, fcc) != 0) {
+        unlink(g_fcc_norm);
+        char nb[MAXPATH + 2];
+        snprintf(nb, sizeof nb, "%s\n", fcc);
+        write_str(nodef, nb);
+    }
 
     int old = 0;
     char b[32];
