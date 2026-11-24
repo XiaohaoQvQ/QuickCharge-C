@@ -23,6 +23,12 @@
 设备上的 3.0.2-c 本地版本号被读成 `0`，刷入 3.0.3-c 后才能正确读出 `300006`，按钮才会消失。
 直接点「更新」按钮装也可以，装完同样是这一版。
 
+## 更新通道改用 Releases 直链
+
+`updateJson` 从 jsDelivr 换成 `https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/update.json`。
+jsDelivr 的 `@main` 缓存 12 小时且不能清，发版后没法立刻生效；`latest/download/` 实时指最新资产，
+没有缓存。以后每次发版要把 `update.json`、`RELEASE.md` 和模块包一起上传。
+
 ## 验证
 
 C c-test 90 项、`chg` 44、`cool` 20、`state` 12 全过；`module.prop` 与 `update.json` 的

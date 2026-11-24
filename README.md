@@ -294,7 +294,7 @@ tag 为 `3.0.3-c`（与标题一致，去掉产品名）。C 版 versionCode 固
 `versionCode`，比本地 `versionCode` 大就在模块卡片上显示「更新」，点一下自动下载刷入：
 
 ```properties
-updateJson=https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/update.json
+updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/update.json
 ```
 
 ```json
@@ -302,9 +302,12 @@ updateJson=https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/update.json
   "version": "3.0.3-c",
   "versionCode": 300006,
   "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.3-c/QuickCharge-v3.0.3-c.zip",
-  "changelog": "https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/RELEASE.md"
+  "changelog": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/RELEASE.md"
 }
 ```
+
+`update.json` 和 `RELEASE.md` 都是 Release 资产，`latest/download/` 永远指向最新一版，
+没有 CDN 缓存。发版时三个文件一起传：模块包、`update.json`、`RELEASE.md`。
 
 C 版的 `updateJson` 必须指 C 仓。两仓模块 ID 同为 `quickcharge`，指错了会把 shell 包推给
 C 版用户，装完守护进程就没了。

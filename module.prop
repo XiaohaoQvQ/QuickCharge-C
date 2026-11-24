@@ -4,5 +4,5 @@ name=Quick Charge
 version=3.0.3-c
 versionCode=300006
 author=Xiaohao
-updateJson=https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/update.json
+updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/update.json
 description=QC·欧加真温控与充电改写
