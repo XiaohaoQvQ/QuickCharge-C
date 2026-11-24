@@ -1530,6 +1530,8 @@ static void scr_tick(void)
 }
 
 /* ------------------------------------------------------------------ 降流解除 */
+static long chg_current(void);   /* 定义在充电快照段，cool_tick 要拿它判是否真被降流 */
+
 /*
  * ColorOS 16 用 oplus_chg/battery/cool_down 做亮屏降流：灭屏 0，亮屏 7~13，
  * 与温度无关（实测电池 33.8℃ 照样跳到 7）。该节点可写，写 0 后满速立即恢复，
@@ -1613,12 +1615,20 @@ static void cool_tick(void)
     if (read_int(node, &cur) < 0) return;
     if (cur == want) return;
 
+    /* 电流已经正常就别碰这个节点：写入本身会让 OPlus 重选档。
+     * 实测 PKB110：ibat 4.3A 时被写 2→0，三秒后掉到 9.7W 并一路抖到 6W；
+     * PKX110：写 0→1 后 tech 7→14、3.6A→1.0A，32W 掉到 9W。
+     * 只有确实被降流（<2.5A）时，写 0 才是"解降流"，否则只是自己把功率打下来。 */
+    long ib = chg_current();
+    if (ib < 0) ib = -ib;
+    if (want == 0 && ib >= 2500000) return;
+
     char b[16];
     snprintf(b, sizeof b, "%d\n", want);
     if (write_str(node, b) == 0) {
         if (g_cool_logged != want) {
-            log_msg("I", "charge", "降流解除：cool_down %d → %d（电池 %d℃ 电量 %d%%）",
-                    cur, want, bt, cap);
+            log_msg("I", "charge", "降流解除：cool_down %d → %d（电池 %d℃ 电量 %d%% 电流 %ldmA）",
+                    cur, want, bt, cap, ib / 1000);
             g_cool_logged = want;
         }
     } else if (g_cool_logged != -3) {
@@ -1783,12 +1793,24 @@ static long pw_median(long ma, int chg)
 static long chg_input(void)
 {
     static const char *cand[] = { "usb/current_now", "usb/input_current_now",
-                                  "usb/current_avg", "usb_input/current_now", NULL };
+                                  "usb/current_avg", "usb_input/current_now",
+                                  "charger/current_now", "battery/input_current_now",
+                                  NULL };
+    static const char *oplus[] = { "charger/current_now", "current_now", NULL };
     char p[MAXPATH];
     long best = 0;
     for (int i = 0; cand[i]; i++) {
         long v;
         snprintf(p, sizeof p, "%s/%s", g_ps, cand[i]);
+        if (path_num(p, &v) < 0 || v == 0) continue;
+        v = uv_norm(v);
+        if (v < 0) v = -v;
+        if (v > best) best = v;
+    }
+    /* 欧加把实测输入电流挂在 oplus_chg/ 下，power_supply 里没有 usb/current_now */
+    for (int i = 0; oplus[i]; i++) {
+        long v;
+        snprintf(p, sizeof p, "%s/%s", g_oplus, oplus[i]);
         if (path_num(p, &v) < 0 || v == 0) continue;
         v = uv_norm(v);
         if (v < 0) v = -v;

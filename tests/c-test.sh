@@ -448,6 +448,16 @@ screen_off
 run sensor >/dev/null 2>&1
 chk "灭屏也解除（驱动本来给 0）" "$(val "$COOL")" "0"
 
+# 电流已经正常（4A）就别写：写入本身会让 OPlus 重选档
+printf '2\n' >"$COOL"; printf '34000\n' >"$BT"; printf '60\n' >"$CAP"
+printf -- '-4000000\n' >"$ROOT/sys/class/power_supply/battery/current_now"
+screen_on
+run sensor >/dev/null 2>&1
+chk "电流 4A 已正常：不碰 cool_down" "$(val "$COOL")" "2"
+printf -- '-1000000\n' >"$ROOT/sys/class/power_supply/battery/current_now"
+run sensor >/dev/null 2>&1
+chk "电流 1A 被降流：写 0 解除" "$(val "$COOL")" "0"
+
 printf '7\n' >"$COOL"
 screen_on
 sed -i 's/^cool_guard=.*/cool_guard=0/' "$BASE/data/state.conf"
