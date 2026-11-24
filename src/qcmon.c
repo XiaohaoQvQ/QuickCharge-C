@@ -73,12 +73,12 @@ typedef struct {
     int sentinel_limit;  /* 0=off */
     int tick;
     int fast_cap;
-    int horae;
     int log_level;
     char hz[8];          /* "off" 或数值 */
     int hz_hard;
     char hz_prev_mcfr[16];
     int cool_guard;      /* 1=亮屏解除 oplus cool_down 降流 */
+    int chg_unlock;      /* 1=取消充电阶梯限流（HAL 节点写 0） */
 } conf_t;
 
 static conf_t g_c;
@@ -327,7 +327,6 @@ static void conf_defaults(void)
     g_c.sentinel_limit = 85;
     g_c.tick = 15;
     g_c.fast_cap = 55;
-    g_c.horae = 1;
     /* 默认事件级：0 只留 E，日志面板会空得没法排查 */
     g_c.log_level = 1;
     g_c.cool_guard = 1;
@@ -386,12 +385,12 @@ static void conf_load(void)
         else if (!strcmp(k, "sentinel_limit")) g_c.sentinel_limit = parse_i(v, 85);
         else if (!strcmp(k, "tick")) g_c.tick = parse_i(v, 15);
         else if (!strcmp(k, "fast_cap")) g_c.fast_cap = parse_i(v, 55);
-        else if (!strcmp(k, "horae")) g_c.horae = parse_i(v, 1);
         else if (!strcmp(k, "log_level")) g_c.log_level = parse_i(v, 1);
         else if (!strcmp(k, "hz")) snprintf(g_c.hz, sizeof g_c.hz, "%s", v);
         else if (!strcmp(k, "hz_hard")) g_c.hz_hard = parse_i(v, 0);
         else if (!strcmp(k, "hz_prev_mcfr")) snprintf(g_c.hz_prev_mcfr, sizeof g_c.hz_prev_mcfr, "%s", v);
         else if (!strcmp(k, "cool_guard")) g_c.cool_guard = parse_i(v, 1);
+        else if (!strcmp(k, "chg_unlock")) g_c.chg_unlock = parse_i(v, 0);
     }
     fclose(f);
 
@@ -1637,6 +1636,112 @@ static void cool_tick(void)
     }
 }
 
+/* ------------------------------------------------------------------ 阶梯解锁 */
+/*
+ * 与 shell 版 sd_unlock_tick 一致：把 thermal HAL 的限流节点写 0（不限流），
+ * 原值存 run/unlock.orig，≥45℃ 或读不到真实温度时还原。
+ *
+ * 不碰两处：
+ *   - battery/cool_down：写它会让 OPlus 重选档。PKB110 实测 ibat 4.3A 时写
+ *     2→0，三秒后 18W 掉到 9.7W，交给 cool_tick 只在真被降流时写；
+ *   - usb/current_max：输入侧上限，写它会打断 PD/VOOC 协商（3.0.4 的教训）。
+ */
+static const char *UNLOCK_NODES[] = {
+    "battery/charge_control_limit",
+    "battery/thermal_charging",
+    "battery/step_charging",
+    NULL
+};
+
+static int g_unlock_logged = 0;
+static long g_unlock_at = 0;
+
+static void unlock_restore(void)
+{
+    char p[MAXPATH + 16], line[440];
+    snprintf(p, sizeof p, "%s/unlock.orig", g_run);
+    FILE *f = fopen(p, "r");
+    if (!f) return;
+    int n = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *bar = strchr(line, '|');
+        if (!bar) continue;
+        *bar = 0;
+        char *val = bar + 1;
+        char *e = val + strlen(val);
+        while (e > val && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
+        if (!line[0] || !val[0]) continue;
+        if (access(line, F_OK) == 0 && write_str(line, val) == 0) n++;
+    }
+    fclose(f);
+    unlink(p);
+    g_unlock_logged = 0;
+    if (n > 0) log_msg("D", "charge", "阶梯解锁：还原 %d 个节点", n);
+}
+
+static void unlock_tick(void)
+{
+    if (!g_c.chg_unlock) { unlock_restore(); return; }
+
+    /* 兜底先于写入：读不到真实温度就不猜，直接撤销 */
+    int real = batt_temp_ps();
+    if (real < -100) {
+        g_c.chg_unlock = 0;
+        state_set("chg_unlock", "0");
+        unlock_restore();
+        log_msg("W", "charge", "阶梯解锁已撤销：读不到电池真实温度，不猜安全");
+        return;
+    }
+    if (real >= 45) {
+        g_c.chg_unlock = 0;
+        state_set("chg_unlock", "0");
+        unlock_restore();
+        log_msg("W", "charge", "阶梯解锁已撤销：电池真实 %d℃ ≥ 45℃", real);
+        return;
+    }
+
+    char orig[MAXPATH + 16], p[MAXPATH], b[64];
+    snprintf(orig, sizeof orig, "%s/unlock.orig", g_run);
+    int n = 0;
+    for (int i = 0; UNLOCK_NODES[i]; i++) {
+        snprintf(p, sizeof p, "%s/%s", g_ps, UNLOCK_NODES[i]);
+        if (access(p, W_OK) != 0) continue;
+        int cur = 0;
+        if (read_int(p, &cur) < 0 || cur == 0) continue;
+
+        /* 原值只备份一次：HAL 反复写回时不要覆盖最初的值 */
+        snprintf(b, sizeof b, "%s|%d", p, cur);
+        int dup = 0;
+        FILE *f = fopen(orig, "r");
+        if (f) {
+            char line[440];
+            while (fgets(line, sizeof line, f)) {
+                char *e = line + strlen(line);
+                while (e > line && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
+                if (!strcmp(line, b)) { dup = 1; break; }
+            }
+            fclose(f);
+        }
+        if (!dup) {
+            f = fopen(orig, "a");
+            if (f) { fprintf(f, "%s\n", b); fclose(f); }
+        }
+
+        if (write_str(p, "0\n") == 0) n++;
+        else if (g_unlock_logged != -1) {
+            log_msg("W", "charge", "阶梯解锁失败：%s 写不进去", UNLOCK_NODES[i]);
+            g_unlock_logged = -1;
+        }
+    }
+
+    /* HAL 可能过一轮又写回去；日志按分钟节流 */
+    long now = now_sec();
+    if (n > 0 && now - g_unlock_at >= 60) {
+        log_msg("I", "charge", "阶梯解锁：%d 个节点写 0（原值备份在 run/unlock.orig）", n);
+        g_unlock_at = now;
+    }
+}
+
 /* ---------------------------------------------------------------- 充电快照 */
 
 /* 以前查一次充电问题，要在终端里 cat 七八个节点：usb 电压、电流上限、
@@ -2760,6 +2865,7 @@ static int loop_once(int *mode_changed)
 
     scr_tick();
     cool_tick();
+    unlock_tick();
     chg_snapshot(charging);
     spoof_pending();
     batt_sp_guard();
@@ -2983,6 +3089,7 @@ int main(int argc, char **argv)
             if (charging) curr_keep();
             scr_tick();
             cool_tick();
+            unlock_tick();
             batt_sp_guard();
             if (sentinel_guard()) {
                 if (!strcmp(g_c.temp_mode, "static")) shell_emul(shell_target());

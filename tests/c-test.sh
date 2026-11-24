@@ -95,6 +95,7 @@ hz=off
 hz_hard=0
 batt_spoof=off
 cool_guard=1
+chg_unlock=0
 EOF
 }
 
@@ -463,6 +464,32 @@ screen_on
 sed -i 's/^cool_guard=.*/cool_guard=0/' "$BASE/data/state.conf"
 run sensor >/dev/null 2>&1
 chk "cool_guard=0 → 不干预" "$(val "$COOL")" "7"
+
+# ============================================================ 11b. 阶梯解锁
+# thermal off 已删除（只停 horae，管性能/亮度）。unlock 动 HAL 限流节点，
+# 必须有原值备份 + 45℃ 自动撤销。
+echo "[11b] 阶梯解锁 chg_unlock"
+setup
+state static 30
+U_B=$ROOT/sys/class/power_supply/battery
+printf '0\n' >"$U_B/charge_control_limit"
+printf '1\n' >"$U_B/thermal_charging"
+printf '38000\n' >"$U_B/temp"
+
+run sensor >/dev/null 2>&1
+chk "默认 chg_unlock=0：不写节点" "$(val "$U_B/thermal_charging")" "1"
+chk "默认：没有备份文件" "$([ -f "$BASE/data/run/unlock.orig" ] && echo yes || echo no)" "no"
+
+sed -i 's/^chg_unlock=.*/chg_unlock=1/' "$BASE/data/state.conf"
+run sensor >/dev/null 2>&1
+chk "开启后 thermal_charging 写 0" "$(val "$U_B/thermal_charging")" "0"
+chk "原值已备份" "$(grep -c 'thermal_charging' "$BASE/data/run/unlock.orig" 2>/dev/null)" "1"
+chk "已是 0 的节点不写" "$(val "$U_B/charge_control_limit")" "0"
+
+printf '46000\n' >"$U_B/temp"
+run sensor >/dev/null 2>&1
+chk "46℃ 自动撤销：节点还原 1" "$(val "$U_B/thermal_charging")" "1"
+chk "46℃ 自动撤销：状态位回 0" "$(grep -c '^chg_unlock=1' "$BASE/data/state.conf" 2>/dev/null)" "0"
 
 # ============================================================ 12. 双实例保护
 echo "[12] 单实例锁"
