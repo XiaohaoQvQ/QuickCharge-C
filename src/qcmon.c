@@ -1312,8 +1312,8 @@ static int scr_target(int *tgt)
 
 static void scr_release(void)
 {
-    /* 退出（拔线/关模式/熔断/高温）时按原值还原。息屏不走这里——息屏保持接管，
-     * 正是为了避免"一还原就把电流压回亮屏档"。 */
+    /* 退出（拔线/关模式/熔断/高温）时按原值还原。息屏时 FCC 路径根本不写，
+     * 内核参数路径才在这里还原，避免把「永远忽略屏幕」留到下次。 */
     FILE *f = fopen(g_scr_orig, "r");
     if (f) {
         char line[400];
@@ -1325,7 +1325,15 @@ static void scr_release(void)
             char *e = val + strlen(val);
             while (e > val && (e[-1] == '\n' || e[-1] == '\r')) *--e = 0;
             if (!line[0] || !val[0]) continue;
-            if (access(line, F_OK) == 0) write_str(line, val);
+            if (access(line, F_OK) != 0) continue;
+            /* 电流类节点：驱动已经放宽（息屏边界/温控回收）就别用旧值压回去。
+             * 只对 mA/uA 量级生效，开关型参数（0/1）照常还原。 */
+            int ov = atoi(val);
+            if (ov >= 100) {
+                char cur[32] = "";
+                if (read_line(line, cur, sizeof cur) == 0 && atoi(cur) > ov) continue;
+            }
+            write_str(line, val);
         }
         fclose(f);
         unlink(g_scr_orig);
@@ -1369,7 +1377,8 @@ static int scr_apply(void)
 
     char fcc[MAXPATH];
     if (scr_fcc_node(fcc, sizeof fcc) < 0) return 1;
-    /* 息屏也走同一条写回逻辑：驱动在息屏边界会重算 FCC，热管理也可能顺手压下来 */
+    /* 只在亮屏时调用（息屏由 scr_tick 直接返回，把 FCC 交还驱动）。
+     * 亮屏后驱动会把 FCC 压到 SCREEN_ON_MAX_FCC_MA，这里按息屏学到的峰值顶回去。 */
 
     int tgt = 0;
     int rc = scr_target(&tgt);
@@ -1452,9 +1461,15 @@ static void scr_tick(void)
     }
 
     if (!g_screen_on) {
-        /* 息屏只刷新基准（记录驱动在息屏放开的峰值），
-         * 之后跟亮屏一样继续接管：两条路径都不在息屏放手。 */
+        /* 息屏只刷新基准（记录驱动在息屏放开的峰值），不写任何节点。
+         * 驱动在息屏边界会自己把 FCC 放开到协议允许的峰值，模块这时候写回
+         * 等于替驱动踩刹车：实测 OPPO/一加 60W 直接掉到 30W 档，而且压住之后
+         * 驱动没机会放开，基准也就永远学不到真实峰值（2.9.73 起的回退）。
+         * 内核参数那条一写就是「永久忽略屏幕」，息屏还原给驱动走正常 FCC。 */
         scr_learn();
+        { char kn[MAXPATH];
+          if (scr_node(kn, sizeof kn) == 0 && scr_active()) { scr_release(); logged[0] = 0; } }
+        return;
     }
 
     int bt = batt_temp_ps();
@@ -1472,7 +1487,7 @@ static void scr_tick(void)
     switch (scr_apply()) {
         case 0: {
             char key[24];
-            snprintf(key, sizeof key, "%s%s", g_scr_way_s, g_screen_on ? "" : ":off");
+            snprintf(key, sizeof key, "%s", g_scr_way_s);
             if (strcmp(key, logged)) {
                 if (!strcmp(g_scr_way_s, "kernel"))
                     log_msg("I", "charge", "亮屏快充：已接管（内核 ignore_screen_state）");
@@ -1480,9 +1495,7 @@ static void scr_tick(void)
                     char b[32] = "";
                     read_line(g_fcc_norm, b, sizeof b);
                     log_msg("I", "charge",
-                            g_screen_on
-                                ? "亮屏快充：已接管（回写 FCC，目标 %smA，节点 %s 实读 %dmA）"
-                                : "亮屏快充：息屏保持（回写 FCC，目标 %smA，节点 %s 实读 %dmA）",
+                            "亮屏快充：已接管（回写 FCC，目标 %smA，节点 %s 实读 %dmA）",
                             b[0] ? b : "?", g_scr_node[0] ? g_scr_node : "?", g_scr_cur);
                 }
                 snprintf(logged, sizeof logged, "%s", key);

@@ -265,11 +265,12 @@ screen_off
 run sensor >/dev/null
 run sensor >/dev/null
 sv=$(val "$ROOT/sys/module/oplus_chg/parameters/ignore_screen_state")
-chk "息屏后仍保持 1" "$sv" "1"
+chk "息屏后还原 0（交给驱动）" "$sv" "0"
 
-# ============================================================ 6b. FCC 回写路径：息屏保持
-# 旧实现息屏 30s 后按 scr.orig 还原，把亮屏被压的 2A 写回去，功率再也上不来。
-echo "[6b] 亮屏快充：FCC 回写（息屏不放手）"
+# ============================================================ 6b. FCC 回写路径：息屏不写
+# 2.9.73~3.0.4 息屏也写回，等于替驱动踩刹车：欧加实测 60W 掉到 30W，
+# 而且压住后驱动没机会放开，基准也永远学不到真实峰值。
+echo "[6b] 亮屏快充：FCC 回写（息屏不写节点）"
 setup
 rm -rf "$ROOT/sys/module/oplus_chg"
 state static 30
@@ -285,7 +286,12 @@ printf '2000000\n' >"$ROOT/sys/class/power_supply/battery/constant_charge_curren
 screen_off
 run sensor >/dev/null
 run sensor >/dev/null
-chk "息屏也顶回 3A" \
+chk "息屏不写节点（交还驱动）" \
+    "$(val "$ROOT/sys/class/power_supply/battery/constant_charge_current_max")" "2000000"
+chk "息屏后基准没被拉低" "$(val "$BASE/data/run/fcc.norm")" "3000"
+screen_on
+run sensor >/dev/null
+chk "再亮屏仍按 3A 顶回" \
     "$(val "$ROOT/sys/class/power_supply/battery/constant_charge_current_max")" "3000000"
 
 # ============================================================ 6c. 极限充电：墙顶到熔断前 1℃
