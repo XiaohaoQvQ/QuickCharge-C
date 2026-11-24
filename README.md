@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.6-c`，与 shell 版 `3.0.6` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.7-c`，与 shell 版 `3.0.7` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -273,16 +273,16 @@ quickcharge/
 
 | 仓库 | 当前版本 | 包名 | versionCode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.6` | `QuickCharge-v3.0.6.zip` | 300013 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.6-c` | `QuickCharge-v3.0.6-c.zip` | 300012 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.7` | `QuickCharge-v3.0.7.zip` | 300015 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.7-c` | `QuickCharge-v3.0.7-c.zip` | 300014 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v3.0.6-c
+Quick Charge v3.0.7-c
 ```
 
-tag 为 `3.0.6-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `3.0.7-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 3.0 起版本固定三段 `主.次.修订`，修订到 100 进一位（`3.0.100` 之后是 `3.1.0`）；
@@ -299,9 +299,9 @@ updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/
 
 ```json
 {
-  "version": "3.0.6-c",
-  "versionCode": 300012,
-  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.6-c/QuickCharge-v3.0.6-c.zip",
+  "version": "3.0.7-c",
+  "versionCode": 300014,
+  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.7-c/QuickCharge-v3.0.7-c.zip",
   "changelog": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/RELEASE.md"
 }
 ```
