@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.2-c`，与 shell 版 `3.0.2` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.3-c`，与 shell 版 `3.0.3` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -271,27 +271,27 @@ quickcharge/
 
 ## 12. 版本与发行版
 
-| 仓库 | 当前版本 | 包名 | versioncode |
+| 仓库 | 当前版本 | 包名 | versionCode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.2` | `QuickCharge-v3.0.2.zip` | 300005 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.2-c` | `QuickCharge-v3.0.2-c.zip` | 300004 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.3` | `QuickCharge-v3.0.3.zip` | 300007 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.3-c` | `QuickCharge-v3.0.3-c.zip` | 300006 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v3.0.2-c
+Quick Charge v3.0.3-c
 ```
 
-tag 为 `3.0.2-c`（与标题一致，去掉产品名）。C 版 versioncode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `3.0.3-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 3.0 起版本固定三段 `主.次.修订`，修订到 100 进一位（`3.0.100` 之后是 `3.1.0`）；
-`versioncode = (主×100 + 次)×1000 + 修订×2 + 通道`，通道 1 = shell、0 = C。
+`versionCode = (主×100 + 次)×1000 + 修订×2 + 通道`，通道 1 = shell、0 = C。
 
 ### 在线升级
 
 `module.prop` 里的 `updateJson` 指向本仓根目录的 `update.json`，管理器定期拉取并比较
-`versionCode`，比本地 `versioncode` 大就在模块卡片上显示「更新」，点一下自动下载刷入：
+`versionCode`，比本地 `versionCode` 大就在模块卡片上显示「更新」，点一下自动下载刷入：
 
 ```properties
 updateJson=https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/update.json
@@ -299,15 +299,19 @@ updateJson=https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/update.json
 
 ```json
 {
-  "version": "3.0.2-c",
-  "versionCode": 300004,
-  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.2-c/QuickCharge-v3.0.2-c.zip",
+  "version": "3.0.3-c",
+  "versionCode": 300006,
+  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.3-c/QuickCharge-v3.0.3-c.zip",
   "changelog": "https://cdn.jsdelivr.net/gh/XiaohaoQvQ/QuickCharge-C@main/RELEASE.md"
 }
 ```
 
 C 版的 `updateJson` 必须指 C 仓。两仓模块 ID 同为 `quickcharge`，指错了会把 shell 包推给
 C 版用户，装完守护进程就没了。
+
+> **`module.prop` 的键名必须写 `versionCode`，C 大写。** 管理器按驼峰取值，写成全小写的
+> `versioncode` 会被读成 `0`，远端任何版本都“更新”，按钮永远消不掉。3.0.2 及更早踩过，
+> 3.0.3-c 起已改。
 
 2.9.72 起 C 守护的日志时间戳跟随本地时区：静态二进制没有 tzdata，`service.sh` 在 `exec` 前
 `export SD_TZ=$(date +%z)`，守护直接解析 `+0800`，不再退回 UTC。
