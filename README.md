@@ -67,37 +67,30 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.0.12-c`，与 shell 版 `3.0.12` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.1.0-c`，与 shell 版 `3.1.0` 功能一致。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
-- 壳温动态上报（`static` 模式）：屏障上限、真实值 gap、余量爬升，三路取最小
+- 壳温恒定额上报（`static` / `charge` 都写同一个值）：不看真实读数、不设温度墙、不设熔断线
 - `emul_temp` 与 `/proc/shell-temp` 双落点
-- `charge` 模式：到 `fast_cap` 后撤销壳温模拟
-- 电池 NTC 伪装，46℃ 硬上限，触发后冷却 120 秒
-- 哨兵温区伪装时读电量计而非读自己写入的假值
+- `charge` 模式：插电就接管，不看电量，拔电还原
+- 电池 NTC 伪装，不按真实温度撤销
+- 真实温度只写遥测（面板显示用），不参与任何判断
 
 **限流**
-- 电流四档：墙-3 / 墙-1 / 墙 → 75 / 50 / 25%，降档回落 2℃ 才升
-- 绝对限流 `curr_max` 默认关闭，四档只按温度走
-- 单位自动换算（µA / mA），回写保留原始量级
+- 降流解除：`cool_down` 非 0 且实测 `|ibat| < 2.5A` 才写 0，已满速时不碰这个节点
+- 单位自动换算（µA / mA），回写保留原始量级；报 mA 的机型不会把 3A 当成 3mA
+- 阶梯解锁：HAL 节点写 0，原值备份，不按温度撤销
 
 **安全**
-- 熔断三段式：触发 → 暂停伪装 → 回差 3℃ 复查 → 自动恢复
-- 伪装值范围校验（20-100℃）
+- 3.1.0 起只保留边界校验：伪装值 20 到 33℃，越界拒绝
 - 退出时还原所有被改写节点
+- 熔断、温度墙、温差档位、绝对电流墙、电量阈值**全部删除**——模块只追求充电速度
 
 **屏幕快充**
-- 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试），「息屏保持亮屏设置」由这个参数承担；息屏这一轮还原 0，交给驱动走正常 FCC
+- 优先写内核 `ignore_screen_state=1`（多个厂商路径依次尝试），息屏这一轮还原 0，交给驱动走正常 FCC
 - 内核不支持时只记住息屏放开的 FCC 峰值，**息屏不写节点、也不还原**；亮屏被驱动压到屏幕档后再按峰值顶回去
-- 电池温度只在熔断前 1℃（默认 47℃）放手，38/41℃ 的七折已取消
-
-**默认极限（3.0 起，没有开关）**
-- 温度墙默认 `60`：60 与 `off` 都表示不设墙，按熔断前 1℃ 处理
-- 电流四档 100 / 75 / 50 / 25%，从墙-3℃ 起逐级降，不提前、不设绝对限流
-- 亮屏 FCC 不再 38/41℃ 折损，cool_down 不再 45℃ 写 2
-- `curr_edge` 保留为兼容字段，不参与分档；面板不再显示限流提前量
-- 熔断本身不动，真实温度到 `battery_limit` 照样撤伪装
+- 不设温度闸：亮屏就接管，直到没在充电为止
 
 **其他**
 - 遥测写入 `run/sensor`（7 字段，面板直接读）
@@ -178,9 +171,9 @@ sh tests/c-test.sh /tmp/qcmon_x86
 sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
 ```
 
-覆盖内容：温区分类、壳温计算（屏障 / gap / 余量）、伪装生效与还原、遥测与心跳格式、
-`SIGUSR1` 后仍存活、熔断三段式、亮屏快充两路、限流单位换算、电池伪装硬上限、
-`off` 模式、单实例锁。
+覆盖内容：温区分类、恒定壳温上报、伪装生效与还原、遥测与心跳格式、
+`SIGUSR1` 后仍存活、高温继续伪装（不再熔断）、亮屏快充两路、限流单位换算、
+降流解除的电流闸、电池伪装不撤销、`off` 模式、单实例锁。
 
 测试全部在临时目录里做 bind mount，不触碰真实 `/sys`。
 
@@ -273,16 +266,16 @@ quickcharge/
 
 | 仓库 | 当前版本 | 包名 | versionCode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.0.12` | `QuickCharge-v3.0.12.zip` | 300025 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.0.12-c` | `QuickCharge-v3.0.12-c.zip` | 300024 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.1.0` | `QuickCharge-v3.1.0.zip` | 301001 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.1.0-c` | `QuickCharge-v3.1.0-c.zip` | 301000 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v3.0.12-c
+Quick Charge v3.1.0-c
 ```
 
-tag 为 `3.0.12-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `3.1.0-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 3.0 起版本固定三段 `主.次.修订`，修订到 100 进一位（`3.0.100` 之后是 `3.1.0`）；
@@ -299,9 +292,9 @@ updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/
 
 ```json
 {
-  "version": "3.0.12-c",
-  "versionCode": 300024,
-  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.0.12-c/QuickCharge-v3.0.12-c.zip",
+  "version": "3.1.0-c",
+  "versionCode": 301000,
+  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.1.0-c/QuickCharge-v3.1.0-c.zip",
   "changelog": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/RELEASE.md"
 }
 ```
