@@ -1,43 +1,52 @@
-# Quick Charge v3.1.0-c
+# Quick Charge v3.1.1-c
 
-与 shell 版 3.1.0 同一份改动：**安全保护整套删除，只留充电速度**。C 守护与 shell
-守护的逻辑保持一致，两版可以随时互换。
+**功能一个没动，只修「配置改写这一层在异常机器上的表现」。**
 
-## 一、安全保护整套删除（破坏性）
+## 起因
 
-熔断守卫、温度墙、温差档位 `aggr`、绝对电流墙 `curr_max`、电量阈值 `fast_cap`、
-阶梯解锁的 45℃ 撤销、电池伪装的 46℃ 撤销——全部删除。
+有台 `PKB110`（ColorOS 16 / Android 17）装完 3.1.0 后报：
 
-壳温现在是**恒定**上报：不看真实读数、不设温度墙、不设熔断线、不按电量退出。
-`shell_temp` 默认 25℃，范围 20 到 33℃。
+```
+! 未匹配到可改写的配置，只有运行时温度伪装可用
+```
 
-`src/qcmon.c` 里对应删掉 `sentinel_guard`、`guard_one`、`guard_cooled`、`is_guard_src`、
-`limit_for_type`、`wall_of`、`curr_target`、`curr_keep`、`curr_is_ua`、`curr_read`、
-`batt_capacity`、`batt_max`、`now_sec` 等 14 个函数和 8 个配置字段，2969 行降到 2659 行，
-`gcc -Wall -Wextra` 零告警。
+排查下来，它 `/odm/etc` 和 `/my_stock/etc` 里的那几个温控 XML 是**坏目录项**：
+`ls -l` 能看到名字但权限、大小全是 `??????????`，`stat` 报 `ENOENT`，
+`umount` 也说"不是挂载点"。`dm-verity` 是 `enforcing`、`green`、`locked=1`，
+分区没被篡改，也不是模块写坏的——模块从不 remount、不写系统分区。
 
-## 二、cool_tick 补上电流闸（P1）
+这种状态下 `sd_xf_*` 拿不到源文件，返回非 0，`sd_transform` 就记一条
+`E 改写失败`。五个文件五条错，每次开机都刷一遍，看起来像模块故障。
 
-C 版此前是裸写：只要 `cool_down` 非 0 就写 0。shell 侧 3.0.6 起就要求
-「实测 `|ibat| < 2.5A` 才写」，因为写入本身会让 OPlus 重选档——实测 4.3A 时写一下
-就从 32W 掉到 6W。现在两边对齐，`chg_current()` 同时补了单位归一
-（`0 < |v| < 20000` 判为 mA），报 mA 的机型 `3000` 不会被当成 3mA 而误判「已降流」。
+## 改了五处
 
-## 三、顺带修的几处
+| 改动 | 原因 |
+|---|---|
+| `sd_transform` 入口先判 `[ -r "$src" ]`，不可读直接跳过 | 源缺失是 ROM 环境问题，不是模块故障，不该记 `E` |
+| 备份 `cp -p` 失败改记 `W` | 以前 `2>/dev/null` 把错误吞了，只建目录不留文件，要回滚才发现备份是空的 |
+| `sd_nm_mirror` 无产出时清空 `$MODDIR/system` 与 `nm.list` | 否则 NoMount 下次开机照旧清单去挂已经不存在的源，留下断链挂载点 |
+| `sd_umount_overrides` 增加 `mountinfo` 扫描 | 只认 `mounts.list` 会在配置文件被清空后漏掉上一版留下的 bind mount；现在按 root 字段匹配，凡源路径落在模块目录下的挂载点都卸掉 |
+| `sd_xf_*` 的 `sed -E` 全部改成 POSIX BRE | 不同 ROM 的 `sed` 实现有差异，扩展正则不值得赌 |
 
-- `scr_apply()` 修掉 `raw` 变量遮蔽，并复用为判断单位已读过的节点原文，不再重复 `read_line`。
-- `screen_sample()` 内层循环变量改名，不再遮蔽外层 `i`。
-- `shell_target()` 改成恒定值（20 到 33℃ 夹取），真实温度只写遥测。
-- 默认 `shell_temp` 与 shell 版一致，都是 25℃。
+改 BRE 时我自己漏了一处 `\)`，被仿真抓到（`sed: Unmatched ( or \(`，覆盖文件从 8 个掉到 5 个）。
+已修正，并逐条比对过 BRE 与 ERE 在样例上的输出完全一致。
 
-## 版本号
+## 对那台机器意味着什么
 
-`3.1.0-c` / `versionCode 301000`，shell 版 `3.1.0` / `versionCode 301001`。
+**这一版不会让它恢复配置改写。** 那几个 inode 已经不可读，模块侧拿不到源，只能跳过。
+改完之后的表现是：安装输出不再报错，日志里不再刷假 `E`，温度伪装、`cool_down` 解除、
+阶梯解锁、亮屏快充照常工作——本来这些就不读 XML。
+
+想真正恢复需要刷回官方 `odm.img` / `my_stock.img`，那不在模块能做的范围内。
 
 ## 验证
 
-- `tests/c-test.sh` 81 项全过。新增：高温继续伪装（电池 50℃ / 板 90℃ 都不撤销）、
-  降流解除的电流闸四条（4.3A 不动、报 mA 的 3A 不动、2499mA 写 0、边界 2.5A 含在闸内）。
-- 单元测试（chg / cool / state / mount）共 87 项全过。
-- 二进制 `bin/qcmon` 为 arm64 静态链接，`strings` 已确认不含 `sentinel_limit`、
-  `battery_limit`、`curr_max`、`cool_guard`、`wall` 等已删配置项。
+- 仿真 **588 项全过**，81 秒（含「源缺失静默跳过」的手工核对：`rc=0`、无产物、无 `E` 日志）
+- 单元测试 `chg` / `cool` / `state` / `mount` 共 **87 项全过**
+- C 版 `c-test` **81 项全过**，C 侧代码本轮未改动
+- 3.1.0 → 3.1.1 只有 `lib/qc.sh` 一个文件有实质变更（+30 / −11）
+
+## 版本号
+
+`3.1.1-c` / `versionCode 301100`，与 shell 版 `3.1.1` 同一份改动。
+两版 `lib/qc.sh` 保持一致，可随时互换。
