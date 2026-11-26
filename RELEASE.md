@@ -1,62 +1,64 @@
-# Quick Charge v3.1.4-c
+# Quick Charge v3.1.5-c
 
-**C 守护这一版补完了三个回流的写入 bug，并和 shell 版真正对齐。**
+## 3.1.4-c 是空发布，这版才是真的
 
-3.1.2 起 shell 包误带了 `bin/qcmon`，官方 shell 版实际跑的就是这份 C 守护——
-所以下面这三个问题，3.1.2/3.1.3 的 shell 用户也一起中了。3.1.4 起 shell 包不带二进制，
-但 C 包自己的 bug 必须单独修干净。
+上一版 `src/qcmon.c`、`bin/qcmon`、`tests/c-test.sh` 三项与 3.1.3-c 逐字节一致：
+脚本层同步了，守护层的四个修复一条都没编进二进制，版本号却照升。
+装 3.1.4-c 的人拿到的是 3.1.3-c 的充电行为。
 
-## P0：不再把 `usb/current_max` 当 FCC 目标
+这版三件一起同步重编，二进制特征串逐项核对：
 
-`scr_fcc_node` 的候选里一直留着 `usb/current_max`。那是 USB 端口/协议能力上限，
-往里写会让充电器重新协商：实测 Find X8 60W→37W、一加 12 停 33W。3.0.4 在 shell 侧
-就删了这个候选，C 版漏了整整十版。
-
-现在与 shell 的 `sd_scr_is_input` 对齐：`/usb/`、`/charger/`、`/pc_port/`、
-`/wireless/`、`input_current_limit` 全部排除，宁可判「本机不支持」。
-
-## P0：息屏不再回写 FCC
-
-旧注释写的是「FCC 路径不再放手」，等于复刻 2.9.73 的老 bug：驱动在息屏边界刚把
-FCC 放开，模块又按历史峰值按回去，电池一热就满功率/10W 反复跳。
-
-现在与 shell 一致：息屏只 `scr_learn()` 学基准，不写任何电池侧节点；内核参数
-`ignore_screen_state` 这条在息屏时还原给驱动。同时 `scr_release` 补上「驱动已经放宽
-就别拿旧值压回去」的判断。
-
-## P1：`cool_down` 写入加电流前置与回滚
-
-- 电流读不到 → 不写（过去 `chg_current()` 返回 0 被当成 0A，等于无条件写）
-- `|Ibat| >= 2.5A` → 不写，不看档位
-- 写 0 后记下原档位，下一轮复查：电流没上升就写回并冷却 5 分钟
-
-## P1：参数与 shell 对齐
-
-| 项 | 旧 | 新 |
+| 特征串 | 3.1.4-c | 3.1.5-c |
 |---|---|---|
-| 默认 `shell_temp` | 25 | 30 |
-| 温度范围 | 25-60 | 20-33 |
-| 亮屏基线上限 | 8000 mA | 12000 mA |
-| `cool_down` | 纯 2.5A 闸 | 同 shell（含回滚） |
-| `qcmon -v` 版本串 | `3.0.12` | `3.1.4`（由 `module.prop` 注入） |
+| `/pc_port/`（输入侧节点排除） | 0 | 1 |
+| `/wireless/` | 0 | 1 |
+| `降流解除反噬`（cool_down 回滚） | 0 | 1 |
+| `息屏保持（回写 FCC`（旧息屏分支） | 1 | 0 |
 
-版本串这一条看着小，实际很影响排查：二进制自报 3.0.12，用户和我们都分不清
-手上跑的是哪一版逻辑。
+`qcmon -v` 报 `3.1.5`，`c-test` 从 81 项扩到 84 项。
 
-## 与 shell 版共用同一套脚本
+## C 守护这版真正生效的修复
 
-`lib/qc.sh`、`customize.sh`、`action.sh`、`service.sh` 与 shell 版逐字节一致，
-只有 `module.prop` 的 `channel=c` 和 `bin/qcmon` 不同。所以 3.1.4 里的这些也一并生效：
+**息屏不再回写 FCC。** 旧代码在息屏时仍然把亮屏学到的基准写回 `constant_charge_current_max`，
+驱动刚在息屏边界把电流放开，模块又踩一脚刹车 —— 实测 60W 掉到 30W。现在息屏只学基准、不写节点。
 
-- `overrides on|off` 配置改写总开关
-- 充电曲线列语义校验（首列不是 0.1℃ 就跳过）
-- QEGA 取样点只在 `batt_spoof` 打开时替换
-- `/proc/shell-temp` 关闭时写中性 30℃
-- 迁移不再覆盖用户手改的伪装温度
-- 每目录命中数日志 + 产物自检
+**不再把 `usb/current_max` 当 FCC 目标。** 那是 PD 协商出来的充电器能力值（常见 2A），
+写它等于把目标压到 2A。候选表删掉这一项，并新增 `scr_is_input` 排除
+`/usb/`、`/charger/`、`/pc_port/`、`/wireless/`、`input_current_limit`。
+
+**`cool_down` 不再裸写。** 电流读不到不动；`|Ibat| ≥ 2.5A` 不动；写了 0 之后下一轮复查，
+电流没升就写回原档位并冷却 5 分钟 —— 写这个节点本身会让 OPlus 重选档。
+
+**`scr_release` 不再拿旧值压回去。** 驱动已经放宽（息屏边界/温控回收）时，
+按存档还原会把电流又拉回低档。
+
+**参数与 shell 对齐。** 默认 30℃、范围 20-33、亮屏基线 12000mA；
+版本串由 `module.prop` 注入，不再自报 `3.0.12`。
+
+## 脚本层同步
+
+`lib/qc.sh`、`customize.sh`、`action.sh`、`service.sh`、`post-fs-data.sh` 与 shell 版同源，
+因此 shell 版这几项修复也一并生效：
+
+- 伪装温度三处兜底 `25` → `30`；
+- `sd_state_get` 补 `shell_temp_manual`、`overrides_off` —— 3.1.4 里这两个键读不出来，
+  手改标记与 `overrides` 开关实际无效；
+- 关闭伪装时不再改写 `/proc/shell-temp`（原来写死 30℃，节点永久停在假值）；
+- 迁移提示改按 `defrev` 判断，3.1.3 被无条件改成 30 的用户终于能看到"可试回 25"；
+- 曲线改写放宽：允许从 0℃ 起、允许降序，仍拒绝 ℃ 整数与电压首列；
+- `overrides off` 时 `post-fs-data` 整段跳过；
+- 包内不再带 `docs/`（74 KB）。
+- `/my_stock/etc`、`/my_product/etc` 纳入配置扫描（ColorOS 14+ 的温控表在这两个分区）。
 
 ## 测试
 
-仿真 **604**、单元 **44 + 31 + 12 + 4**、c-test **84**，全过。
-c-test 新增：只有 `usb/current_max` 时不接管、息屏 0 次写 FCC、`cool_down` 电流未知
-不动、写 0 后电流没升写回。
+仿真 **613**、单元 **44 + 31 + 12 + 4**、c-test **84**，全过。
+
+这次 `c-test` 在 C 仓自己的源码上跑，不是拿主仓源码代跑。
+
+## 装机
+
+覆盖刷入，参数与日志保留。C 包 `channel=c`，会走 `bin/qcmon`。
+
+- 完整包：`QuickCharge-v3.1.5-c.zip`（406 KB）
+- 更新清单：`update.json`

@@ -51,7 +51,7 @@ int t = read_int_file(path);
 | 常驻内存 RSS | 3-5 MB | 3-5 MB | **988 KB** |
 | 其中私有脏页 | — | — | **96 KB** |
 | 日均 CPU（tick=15s） | 约 54 秒 | 约 7 秒 | **约 1 秒** |
-| 包体积 | 67 KB | 67 KB | 390 KB |
+| 包体积 | 67 KB | 80 KB | 406 KB |
 
 两点需要说明：
 
@@ -67,7 +67,7 @@ int t = read_int_file(path);
 
 ## 3. 功能覆盖
 
-2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.1.4-c`，与 shell 版 `3.1.4` 功能一致。
+2.9.44 起与 shell 版全量对齐，不再有“开机执行一次、之后不跟随”的缺口。当前版本 `3.1.5-c`。与 shell 版 `3.1.5` 的差别只在守护实现：shell 版跑 `lib/qc.sh` 解释执行，C 版跑静态二进制；业务逻辑（配置改写、温度伪装、亮屏接管、cool_down）两侧同源同测试。
 
 **温度**
 - 温区扫描与分类（core / noncore / battery / shell / gpu / 兜底）
@@ -160,7 +160,7 @@ aarch64-linux-gnu-gcc -Os -static -no-pie -s \
 
 ## 6. 测试
 
-`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **78 项**。
+`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **84 项**。
 x86 与 arm64（qemu 用户态）各跑一遍。
 
 ```sh
@@ -221,7 +221,7 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
    shell 版一行报错还能继续跑下一轮。静态二进制没有 ASan，现场只能看日志。
 4. **不可审计是相对的**。源码在 `src/qcmon.c`，构建脚本在 `build-qcmon.sh`，
    但没有做 bit-for-bit 的可复现构建（`BuildID` 和路径会带差异）。
-5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 78 项测试双跑兜底。
+5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 84 项测试双跑兜底。
 6. **必须配合模块使用**。它读 `state.conf`、依赖模块的目录布局，不能单独跑。
 
 第 3 条是最实际的风险，也是 `service.sh` 保留 shell 回退的原因。
@@ -243,9 +243,9 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
 
 ```
 quickcharge/
-├── src/qcmon.c            C 守护源码（2982 行，单文件）
+├── src/qcmon.c            C 守护源码（2708 行，单文件）
 ├── build-qcmon.sh         交叉编译脚本（24 行）
-├── tests/c-test.sh        78 项冒烟测试（497 行）
+├── tests/c-test.sh        84 项冒烟测试（533 行）
 ├── bin/qcmon              arm64 静态二进制（713 KB）
 ├── lib/qc.sh              shell 版核心库（4147 行，C 版的对照实现）
 ├── service.sh             启动入口，检测 bin/qcmon 决定走哪条路径
@@ -266,16 +266,16 @@ quickcharge/
 
 | 仓库 | 当前版本 | 包名 | versionCode |
 |---|---|---|---|
-| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.1.4` | `QuickCharge-v3.1.4.zip` | 301401 |
-| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.1.4-c` | `QuickCharge-v3.1.4-c.zip` | 301400 |
+| [QuickCharge](https://github.com/XiaohaoQvQ/QuickCharge)（shell） | `3.1.5` | `QuickCharge-v3.1.5.zip` | 301501 |
+| [QuickCharge-C](https://github.com/XiaohaoQvQ/QuickCharge-C)（C 守护） | `3.1.5-c` | `QuickCharge-v3.1.5-c.zip` | 301500 |
 
 发行版标题统一为「产品全名 + 版本号」，不带摘要：
 
 ```
-Quick Charge v3.1.4-c
+Quick Charge v3.1.5-c
 ```
 
-tag 为 `3.1.4-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
+tag 为 `3.1.5-c`（与标题一致，去掉产品名）。C 版 versionCode 固定在偶数序列，shell 版为奇数序列，
 两者互不覆盖，可以先 shell 后 C 反复换刷。
 
 3.0 起版本固定三段 `主.次.修订`，修订到 100 进一位（`3.0.100` 之后是 `3.1.0`）；
@@ -292,9 +292,9 @@ updateJson=https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/
 
 ```json
 {
-  "version": "3.1.4-c",
-  "versionCode": 301400,
-  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.1.4-c/QuickCharge-v3.1.4-c.zip",
+  "version": "3.1.5-c",
+  "versionCode": 301500,
+  "zipUrl": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/download/3.1.5-c/QuickCharge-v3.1.5-c.zip",
   "changelog": "https://github.com/XiaohaoQvQ/QuickCharge-C/releases/latest/download/RELEASE.md"
 }
 ```
