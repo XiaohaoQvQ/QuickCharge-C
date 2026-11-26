@@ -1,47 +1,37 @@
-# Quick Charge v3.1.6-c
+# Quick Charge v3.1.7-c
 
-C 守护，功能与 shell 版 3.1.6 等价。这版只修一个 C 版独有的问题，没有新功能。
+C 守护，功能与 shell 版 3.1.7 等价。
 
-## 拔一次电就把 `/proc/shell-temp` 写成 0℃
+## 守护逻辑这版没改
 
-3.1.5 的 shell 侧改对了：关闭壳温模拟时**整段不写** `/proc/shell-temp`。
+`src/qcmon.c` 与 3.1.6-c 逐字节相同。`bin/qcmon` 重编了一次，差异只在注入的版本串（`-v` 报 `qcmon 3.1.7`，md5 `6d9b0e8e`）。也就是说：**3.1.6-c 的充电行为不变**，不必为了"修 bug"升级。
 
-原因：这个欧加自定义 proc 接口没有 `emul_temp` 那种「写 0 = 关闭模拟」的语义。
-写 0 会被驱动读成 0℃，下次插电头几秒落进低温保护（锁 5V/500mA），比不伪装还慢。
-而写死 30℃ 又会让节点永久停在假值 —— 只能不写，交还驱动自己更新。
+3.1.6-c 的 87 项 c-test 这版照样全过，x86 现编和官方 arm64 二进制（qemu）各跑一遍。
 
-3.1.5 的 C 侧没跟上，`shell_emul(0)` 照样逐路写 `0 0`，两个调用点都在热路径上：
+## 脚本层跟上主仓
 
-- `charge_tick()` 的拔电分支 —— **每次拔电都执行**；
-- `restore_all()` —— 退出 / 卸载时执行。
+C 包里的 `customize.sh`、`action.sh`、`lib/qc.sh` 是同一份，所以拿到了主仓这版的改动：
 
-结果是 shell 用户不会遇到，**C 用户拔一次电就会**：节点被压成 0℃，再插上头几秒可能又限流。
-这版补上条件判断，关闭时一个字节都不写。
+- `overrides on|off` 写值时落 `overrides_manual=1`，迁移不再拿 `defrev` 猜用户意图；
+- `sd_state_get` 补 `overrides_manual` 分支（否则又是"写了读不到"）；
+- 安装提示里 `overrides` 遗留校正只在无标记时触发。
 
-## 测试补了断言，并且反向验过
+## 文档
 
-`c-test.sh` 新增三条：
+- README 的测试数字跟到 87 项 / 547 行，`src/qcmon.c` 2711 行、`lib/qc.sh` 4116 行。
+- `TECH.md` 修正 `shell-temp` 关闭语义（不写，不是归零）与配置改写目录数。
 
-```
-插电写壳温到 shell-temp   → 9 30000
-拔电不动 shell-temp       → 9 30000   （旧实现这里是 9 0）
-拔电仍把 emul_temp 归零   → 0
-```
+## 测试
 
-把 `celsius != 0 &&` 条件去掉重编，第二条立刻 FAIL —— 断言确实抓得住这个 bug，
-不是写来凑数的。
-
-## 同步与版本
-
-- `src/qcmon.c` 与主仓逐字节一致，`bin/qcmon` 重编（md5 `ec7b2a1a`，自报 `3.1.6`）。
-- `customize.sh` 同步了主仓的两项迁移修正（`overrides_off` 遗留值校正、不再改动手设 25℃）。
-- `tests/c-test.sh` 同步，87 项全过；主仓另跑语法 6/6、单元 91、仿真 613。
-- 主仓新增 `tests/preflight.sh`：两仓逐字节比对 + 二进制特征串 + 版本号自洽，
-  发版前一条命令跑完。C 版特征串全部命中。
+| 项 | 结果 |
+|---|---|
+| c-test（x86 现编） | 87 |
+| c-test（官方 arm64 bin，qemu） | 87 |
+| shell 侧仿真 / 单元 | 613 / 97 |
 
 ## 装机
 
-覆盖安装，重启即可。与 shell 版可以随时互换，`state.conf` 是同一份。
+覆盖安装，重启即可。与 shell 版随时互换，`state.conf` 是同一份。
 
-- 完整包：`QuickCharge-v3.1.6-c.zip`（约 415 KB，含静态编译的 `bin/qcmon`）
+- 完整包：`QuickCharge-v3.1.7-c.zip`
 - 更新清单：`update.json`

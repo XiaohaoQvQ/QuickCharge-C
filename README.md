@@ -160,7 +160,7 @@ aarch64-linux-gnu-gcc -Os -static -no-pie -s \
 
 ## 6. 测试
 
-`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **84 项**。
+`tests/c-test.sh` 在假 sysroot 上搭一套温区与电池节点，跑完整链路，共 **87 项**。
 x86 与 arm64（qemu 用户态）各跑一遍。
 
 ```sh
@@ -221,7 +221,7 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
    shell 版一行报错还能继续跑下一轮。静态二进制没有 ASan，现场只能看日志。
 4. **不可审计是相对的**。源码在 `src/qcmon.c`，构建脚本在 `build-qcmon.sh`，
    但没有做 bit-for-bit 的可复现构建（`BuildID` 和路径会带差异）。
-5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 84 项测试双跑兜底。
+5. **两套要同时维护**。功能改动需要写两遍，容易分叉。现在靠 87 项测试双跑兜底。
 6. **必须配合模块使用**。它读 `state.conf`、依赖模块的目录布局，不能单独跑。
 
 第 3 条是最实际的风险，也是 `service.sh` 保留 shell 回退的原因。
@@ -243,11 +243,11 @@ sh tests/c-test.sh "/usr/bin/qemu-aarch64-static ./bin/qcmon"
 
 ```
 quickcharge/
-├── src/qcmon.c            C 守护源码（2708 行，单文件）
+├── src/qcmon.c            C 守护源码（2711 行，单文件）
 ├── build-qcmon.sh         交叉编译脚本（24 行）
-├── tests/c-test.sh        84 项冒烟测试（533 行）
+├── tests/c-test.sh        87 项冒烟测试（547 行）
 ├── bin/qcmon              arm64 静态二进制（713 KB）
-├── lib/qc.sh              shell 版核心库（4147 行，C 版的对照实现）
+├── lib/qc.sh              shell 版核心库（4116 行，C 版的对照实现）
 ├── service.sh             启动入口，检测 bin/qcmon 决定走哪条路径
 ├── action.sh              控制入口：CLI + 交互菜单
 ├── customize.sh           安装：设备检测、生成覆盖层、初始化参数
