@@ -1,49 +1,45 @@
-# Quick Charge v3.1.14-c
+# Quick Charge v3.1.15-c
 
-C 守护版。业务逻辑与 shell 版同源同测试，这一版的改动集中在「日志能不能回答问题」和
-「两个守护同时在跑」，两侧逐条对齐。
+C 守护版。业务逻辑与 shell 版同源同测试，这一版只有一件事：**让你确定自己跑的是装上的那份代码**。
 
-## 日志：1 级也要有功率
+3.1.14 的验收报告带了一份 PLG110 现场日志：装的 3.1.14，跑的是 3.1.11。旧守护在文件被覆盖后
+一直没退，boot 段看到它活着就跳过，3.1.13 与 3.1.14 的修复在这台机器上一条都没生效。
 
-`chg_snapshot` 的门禁从 2 级降到 1 级。用户默认就是 1 级，锁在 2 级等于**每一份功率反馈都
-缺同一块证据**——PLG110 那份「10–20W」的日志 `[chg]` 计 0 条，连「在不在充」都判不了。
+## 旧守护让位
 
-## 通道闸：qcmon 不再被谁拉起来就跑
-
-`main()` 读完 `module.prop` 后校验 `channel`，不是 `c` 就写一条 `E` 退出：
+`sd_pid_is_daemon` 只认「cmdline 里有没有 `service.sh`」，认不出「是不是这一份」。现在
+`service.sh` 在 `exec qcmon` 之前把 `service.sh` / `lib/qc.sh` / `bin/qcmon` 三个文件的
+`md5@mtime` 写进 `run/daemon.ver`，boot 段在「守护已在运行，跳过」之前比一次，不一致就
+TERM 旧进程、清锁、重新拉起：
 
 ```
-E [daemon] channel=shell 不是 c，qcmon 拒绝启动（避免与 shell 守护双写日志与备份）
+W [daemon] 守护(pid=…)跑的不是磁盘上这份代码：<旧> → <新>，收掉重起
 ```
 
-以前守卫只在 `service.sh` 的 `sd_use_c` 分支里，二进制被顺手执行、被旧脚本拉起、被
-C 包刷回 shell 包后残留，都会和 shell 守护双写同一份 `log.txt`，并互相覆盖 `run/` 下的
-`scr.orig`、`fcc.norm`、`unlock.orig`。而 ≤3.1.12 的 qcmon 还会写 `cool_down`——PJD110 的
-33.6W→2.2W 就是这么来的。
+没有 `daemon.ver` 的守护是 3.1.14 或更早起的，同样按旧代码处理。`bin/qcmon` 也算进指纹——
+C 包有只重编二进制的版本，光比脚本会漏。
 
-shell 侧配套：`service.sh` 收掉 cmdline 含 `bin/qcmon` 的进程，`customize.sh` 在非 C 通道
-装完后删掉 `$MODPATH/bin`（Magisk 不清理新包里没有的旧文件）。
+## 候选表：平台认对后重算，数量与 shell 对齐
 
-## 屏幕与降流日志不再刷屏
+`curr_prepare` 只填一次表，`plat_resolve` 却专门设计了「`other` 不缓存、最多试 8 次」。
+两者叠在一起就是空转：第一次填表时若还是 `other`，MTK 那 5 个候选永久拿不到。
 
-- 「亮屏快充：本机不支持」改成**状态变化记一条 + 每 30 分钟兜底一条**；
-- `Full` 从 `Charging` 里分出来，满电不刷这条 W；
-- `cool_down` 节点存在但读不到时记一条一次性 `W`，不再静默。
+- 建表时记 `g_curr_plat`，平台从 `other` 认对就清表重填；
+- `MAXCURR` 从 12 提到 16：13 个候选会被静默截掉最后一个（`mtk-battery`）；
+- 补上 `oplus_chg` 的 virtual 实名路径，候选表变成基础 10 + MTK 5 = 15，与 shell 侧同序同数；
+- 重探周期从每 20 轮改成每 4 轮，与 `service.sh` 的 `cnt % 4` 一致（tick=15s 时是 5 分钟 vs 1 分钟，
+  排查同一件事时两边延迟对不上，很容易误判成版本不同）。
 
-## env 行
+## 零碎
 
-- `charge nodes=存在/候选` 两个数都对了（shell 侧的 1/0 是子 shell 丢变量所致，C 侧本来就对）；
-- 新增 `charge nodes 命中=<全路径>`，`battery/current_max` 与 `usb/current_max` 分得开；
-- 新增 `cool_down=<值>（<路径>）`，只给数量时 `fcc 节点=none` 追不下去。
-
-## 其他
-
-- 启动日志记 `service.sh`/`lib/qc.sh` 的 `md5@mtime`，混合安装一眼可查；
-- 「N 条未卸净」带上具体路径。
+- `ua_norm` 的注释还在讲 3.1.13 就删掉的「2.5A 闸」和「去写 0」，改成讲它真正的作用：
+  不归一的话 4A 会被算成 3mA，功率与判重全错。
+- `customize.sh` 删 `bin/` 前加 `[ -f module.prop ]` 前置，缺文件时不再把 C 包自己的
+  二进制删掉。
 
 ## 测试
 
-- c-test 100 项（x86 现编 + arm64 包内二进制 + qemu 双跑）
-- 单元 95
-- 仿真 629（shell 侧，跑两遍全绿）
-- `preflight --full` 全绿
+- c-test **102 项**（x86 现编 + 包内 arm64 二进制 + qemu 双跑）；新增 [21]「MTK 候选表 15 个」
+- 单元 95、仿真 641，与 shell 版同一份用例
+- `preflight --full` 全绿：两仓逐字节比对（`tests/sim/run.sh` 这次进了清单）、
+  `3.1.15-c → 3011500` 反算、7 条新守卫

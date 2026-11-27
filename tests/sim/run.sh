@@ -1046,7 +1046,11 @@ printf 'Charging\n' >/sys/class/power_supply/battery/status
 printf '50\n'     >/sys/class/power_supply/battery/capacity
 SD_DATA=$SDD SD_MODDIR=/opt/qc sh /opt/qc/service.sh >/tmp/d16c.log 2>&1 &
 wait_eq "/sys/class/thermal/thermal_zone0/emul_temp" "28000" 3 "开机即伪装：不等 tick"
-[ -f "$SDD/run/daemon.pid" ] && kill -TERM "$(cat "$SDD/run/daemon.pid")" 2>/dev/null
+# 这一步以前是「读 pid 文件再 kill」：emul 是 sd_apply_state 写的，写在启动守护之前，
+# 抢在这中间时 pid 文件还不存在，kill 落空 → 旧守护活着 → 下面的 --daemon 直接
+# 退出「已有守护在运行」，tick=60 的用例要等满一个 30s 周期才看到写入。
+# 改走 sd_daemon_stop：它按「谁是守护」找进程并清锁，不依赖文件何时出现。
+SD_DATA=$SDD SD_MODDIR=/opt/qc sh -c '. /opt/qc/lib/qc.sh; sd_daemon_stop' >/dev/null 2>&1
 sleep 1
 
 # tick 很大时，仅充电档也必须尽快感知拔电（内部周期固定 10 秒，不受 tick 拖累）
@@ -1935,7 +1939,11 @@ q9() {
 # 守护没跑时 $SD_RUN 可能还不存在。旧版所有节点在"写临时文件"这一步失败，
 # 最后报的却是"没有节点被伪装"，被误判成机型不支持。
 rm -rf "$D9/run"
-eq "$(q9 core 45)" "核心 伪装 -> 45℃" "core 45 回执（SD_RUN 不存在）"
+# 回执第一行是结果，后面可能跟提醒行（3.1.13 起核心伪装会提示"写得越高越早降频"）
+_o9=$(q9 core 45)
+eq "$(printf '%s\n' "$_o9" | head -1)" "核心 伪装 -> 45℃" "core 45 回执（SD_RUN 不存在）"
+case "$_o9" in *"越早降频"*) ok "core 回执带降频提醒" ;;
+    *) bad "core 回执缺提醒：$_o9" ;; esac
 eq "$(sed -n 's/^core_temp=//p' "$D9/state.conf")" "45" "core 45 写入状态"
 eq "$(cat /sys/class/thermal/thermal_zone0/temp)" "45000" "core 45：核心节点被顶成 45000"
 eq "$(cat /sys/class/thermal/thermal_zone1/temp)" "40000" "core 45：电池温区不动"
@@ -2159,8 +2167,11 @@ printf '380\n'       >/sys/class/power_supply/battery/temp
 eq "$(t42 sh /opt/qc/action.sh json | grep -o '"batt_spoof":"[a-z0-9]*"')" \
    '"batt_spoof":"off"' "默认：电池 NTC 不伪装"
 
-eq "$(t42 sh /opt/qc/action.sh batt 30 2>&1 | grep -c '真实 38')" \
+_o42=$(t42 sh /opt/qc/action.sh batt 30 2>&1)
+eq "$(printf '%s\n' "$_o42" | head -1 | grep -c '真实 38℃')" \
    "1" "batt 30：回显真实温度"
+case "$_o42" in *"功率可能跟着抖"*) ok "batt 回执提示读数固定值的影响" ;;
+    *) bad "batt 回执缺提示：$_o42" ;; esac
 
 eq "$(t42 cat /sys/class/thermal/thermal_zone0/temp)" \
    "30000" "batt 30：温区读到 30℃"
@@ -2492,9 +2503,11 @@ t47c sh -c '. /opt/qc/lib/qc.sh; _sd_screen_on=1; sd_scr_tick' >/dev/null 2>&1
 eq "$(cat /sys/module/oplus_chg/parameters/ignore_screen_state)" "1" "降温后恢复接管（内核参数）"
 rm -rf /sys/module/oplus_chg
 
-# ---------------------------------------------------------------- T47d 降流解除
-# 电流已经正常时不许写 cool_down：写入本身会让 OPlus 重选档。
-# PKB110 实测 ibat 4.3A 时被写 2→0，三秒后 18W 掉到 9.7W 并一路抖到 6W。
+# ------------------------------------------------------- T47d cool_down 只读
+# 3.0~3.1.12 会往 cool_down 写 0（"降流解除"），三次实测全是净损失：
+# PKB110 2→0 掉到 9.7W、PKX110 0→1 掉到 9W、PJD110 3→0 从 33.6W 掉到 2.2W
+# 且 45 分钟没回来（vusb 8V→5.15V、vooc 1→0，只能拔插线）。
+# 3.1.13 起一律只读：任何电流、任何档位都不写。
 D47d=/tmp/qc47d; rm -rf "$D47d"; mkdir -p "$D47d/bl" "$D47d/run"
 printf '200\n' >"$D47d/bl/brightness"
 mkdir -p /sys/class/power_supply/battery /sys/class/oplus_chg/battery
@@ -2507,10 +2520,14 @@ t47d() { env SD_DATA=$D47d SD_MODDIR=/opt/qc SD_NO_DAEMON=1 SD_BL="$D47d/bl" SD_
          SD_CURR_NODES=/sys/class/power_supply/battery/constant_charge_current_max \
          FAKE_PLAT=sm8850 FAKE_SOCMFR=Qualcomm FAKE_HW=qcom "$@"; }
 t47d sh -c '. /opt/qc/lib/qc.sh; sd_state_load; sd_cool_tick' >/dev/null 2>&1
-eq "$(cat /sys/class/oplus_chg/battery/cool_down)" "2" "电流 4A 已正常：不碰 cool_down"
+eq "$(cat /sys/class/oplus_chg/battery/cool_down)" "2" "电流 4A：不写 cool_down"
 printf '1000000\n' >/sys/class/power_supply/battery/current_now
 t47d sh -c '. /opt/qc/lib/qc.sh; sd_state_load; sd_cool_tick' >/dev/null 2>&1
-eq "$(cat /sys/class/oplus_chg/battery/cool_down)" "0" "电流 1A 被降流：写 0 解除"
+eq "$(cat /sys/class/oplus_chg/battery/cool_down)" "2" "电流 1A：仍然不写（只读）"
+printf '300000\n' >/sys/class/power_supply/battery/current_now
+printf '7\n'     >/sys/class/oplus_chg/battery/cool_down
+t47d sh -c '. /opt/qc/lib/qc.sh; sd_state_load; sd_cool_tick' >/dev/null 2>&1
+eq "$(cat /sys/class/oplus_chg/battery/cool_down)" "7" "亮屏 7 档 + 368mA：不写"
 rm -rf /sys/class/oplus_chg
 
 # ---------------------------------------------------------------- T48 节点读取
@@ -2646,6 +2663,164 @@ env SD_DATA=$D52 SD_MODDIR=/opt/qc sh -c '. /opt/qc/lib/qc.sh; sd_unlock_tick' 2
 eq "$(cat "$B52/thermal_charging")" "0" "HAL 写回 1：下一轮再压 0"
 eq "$(grep -c '^chg_unlock=1' "$D52/state.conf" 2>/dev/null)" "1" "状态位仍是 1"
 rm -rf "$D52"
+
+# ---------------------------------------------------------------- T53 日志里要有功率
+# 3.1.13 的 PLG110 日志是 log_level=1，[chg] 计 0 条 —— 用户说「10–20W」，
+# 日志里连「在不在充」都没有。快照属于事件，1 级就该记。
+D53=/tmp/qc53; rm -rf "$D53"; mkdir -p "$D53/bl/panel0-backlight"
+printf '200\n' >"$D53/bl/panel0-backlight/actual_brightness"
+t53() { env SD_DATA=$D53 SD_MODDIR=/opt/qc SD_NO_DAEMON=1 SD_BL="$D53/bl" SD_FB=/nonexistent \
+        SD_CURR_NODES=/sys/class/power_supply/usb/current_max \
+        FAKE_PLAT=sm8850 FAKE_SOCMFR=Qualcomm FAKE_HW=qcom "$@"; }
+
+rm -rf /sys/class/oplus_chg
+mkdir -p /sys/class/power_supply/battery /sys/class/power_supply/usb
+printf 'Charging\n'  >/sys/class/power_supply/battery/status
+printf '380\n'       >/sys/class/power_supply/battery/temp
+printf '60\n'        >/sys/class/power_supply/battery/capacity
+printf '4000000\n'   >/sys/class/power_supply/battery/current_now
+printf '4219000\n'   >/sys/class/power_supply/battery/voltage_now
+printf '8850000\n'   >/sys/class/power_supply/usb/voltage_now
+printf '2000000\n'   >/sys/class/power_supply/usb/current_max
+printf 'USB_DCP\n'   >/sys/class/power_supply/usb/type
+
+printf 'temp_mode=off\nshell_temp=28\ntick=5\nlog_level=1\ndefrev=3\n' >"$D53/state.conf"
+SD_DATA=$D53 SD_MODDIR=/opt/qc SD_BL="$D53/bl" SD_FB=/nonexistent \
+    sh /opt/qc/service.sh --daemon >/tmp/t53.log 2>&1 &
+D53P=$!
+wait_grep "$D53/log.txt" '\[chg\]' 8 "1 级日志也有充电快照"
+has "$(cat "$D53/log.txt" 2>/dev/null)" "vusb=" "快照里带 vusb（功率的输入）"
+has "$(cat "$D53/log.txt" 2>/dev/null)" "ibat=" "快照里带 ibat"
+
+# 两个主人共用一个变量时，「屏幕 判定」会每轮记一条（3.1.13 实测 77 条）
+sleep 8
+eq "$(grep -c '屏幕 判定' "$D53/log.txt")" "1" "屏幕 判定只记一次"
+has "$(cat "$D53/log.txt" 2>/dev/null)" "代码指纹 service.sh=" "启动日志带代码指纹"
+has "$(cat "$D53/log.txt" 2>/dev/null)" "lib/qc.sh=" "指纹带 lib/qc.sh"
+kill -TERM "$D53P" 2>/dev/null; wait_dead "$D53P"
+
+# ------------------------------------------------------- T53b 满电不算「本机不支持」
+# 3.1.13 把 Full 也走同一条分支：插着线满电放一夜，日志被这条 W 占满，
+# 而且这 78 条反被当成「当时在充电」的证据。
+: >"$D53/log.txt"
+printf 'Full\n' >/sys/class/power_supply/battery/status
+t53 sh -c '. /opt/qc/lib/qc.sh; sd_state_set temp_mode charge; _sd_screen_on=1; sd_scr_tick' >/dev/null 2>&1
+hasnt "$(cat "$D53/log.txt" 2>/dev/null)" "本机不支持" "满电：不刷「本机不支持」"
+
+# 充电但确实没节点：状态变化记一条，后面同状态不再记
+printf 'Charging\n' >/sys/class/power_supply/battery/status
+: >"$D53/log.txt"
+t53 sh -c '. /opt/qc/lib/qc.sh; sd_state_set temp_mode charge; _sd_screen_on=1
+           sd_scr_tick; sd_scr_tick; sd_scr_tick' >/dev/null 2>&1
+eq "$(grep -c '本机不支持' "$D53/log.txt")" "1" "三轮同状态只记一条"
+
+# 一直不支持要留心跳：同一进程里把上次记录时刻往前推 30 分钟，下一轮必须再记
+# （单次命令每次都是新进程，计数没有意义，所以两轮必须写在一个 sh -c 里）
+: >"$D53/log.txt"
+t53 sh -c '. /opt/qc/lib/qc.sh; sd_state_set temp_mode charge; _sd_screen_on=1
+           sd_scr_tick; sd_scr_tick
+           _sd_scr_fail_at=$(( $(date +%s) - 1801 )); sd_scr_tick' >/dev/null 2>&1
+eq "$(grep -c '本机不支持' "$D53/log.txt")" "2" "两轮一条，满 30 分钟再记一条"
+
+# env 行：存在/候选两个数都要对。3.1.13 写的是 1/0 —— ce 在 sd_curr_nodes
+# 之前就算，拿到的是还没填的空候选表，第二位永远是 0。
+: >"$D53/log.txt"
+t53 sh /opt/qc/action.sh temp static 28 >/dev/null 2>&1
+t53 sh -c '. /opt/qc/lib/qc.sh; sd_state_load; sd_dump_env' >/dev/null 2>&1
+_cn=$(sed -n 's/.*charge-nodes=\([0-9][0-9]*\)\/\([0-9][0-9]*\).*/\1 \2/p' "$D53/log.txt" | head -1)
+case "${_cn#* }" in
+    ''|0) ng "env 候选数恒 0（cn/ce 顺序错）：$_cn" ;;
+    *)    ok "env 报 存在/候选 = $_cn" ;;
+esac
+has "$(cat "$D53/log.txt" 2>/dev/null)" "charge nodes 命中=/sys/class/power_supply/usb/current_max" \
+    "env 命中清单带全路径"
+
+# cool_down 节点在、读不到：以前静默，日志里看不出「根本没在管」
+# 用目录占位：root 无视权限位，但读目录一定失败，正好模拟「节点在、读不到」
+mkdir -p /sys/class/oplus_chg/battery/cool_down
+: >"$D53/log.txt"
+t53 sh -c '. /opt/qc/lib/qc.sh; sd_state_load; sd_cool_tick; sd_cool_tick' >/dev/null 2>&1
+has "$(cat "$D53/log.txt" 2>/dev/null)" "cool_down 节点存在但读不到" "读不到就记一条"
+eq "$(grep -c '读不到' "$D53/log.txt")" "1" "同进程两轮只记一次"
+rm -rf /sys/class/oplus_chg
+
+# ---------------------------------------------------------------- T54 收掉并存的 qcmon
+# C 包装过又刷回 shell 包、旧包残留、用户手跑过一次：run/ 下的 scr.orig / fcc.norm /
+# unlock.orig 是共用的，两个守护会互相覆盖；≤3.1.12 的 qcmon 还会写 cool_down。
+# 3.1.14 之前 preflight 只断言「收掉并存的 qcmon」这行文字在，行为没人测。
+D54=/tmp/qc54; rm -rf "$D54" /tmp/qc54b; mkdir -p "$D54" /tmp/qc54b/bin
+printf 'temp_mode=off\nlog_level=1\ntick=5\n' >"$D54/state.conf"
+# 假 qcmon 不能用 exec：exec 会把 cmdline 换成被执行的命令，grep bin/qcmon 就落空了，
+# 用例会「假绿」—— 代码没清掉进程，测试也看不见。
+cat >/tmp/qc54b/bin/qcmon <<'EOS'
+#!/bin/sh
+while :; do sleep 1; done
+EOS
+chmod +x /tmp/qc54b/bin/qcmon
+/tmp/qc54b/bin/qcmon &
+F54=$!
+sleep 0.3
+# 清理分支只对非 C 通道生效；C 仓副本跑这套仿真时 module.prop 是 channel=c，
+# 这里临时改成 shell，跑完原样写回。
+_oc54=$(sed -n 's/^channel=//p' /opt/qc/module.prop 2>/dev/null | head -1)
+sed -i 's/^channel=.*/channel=shell/' /opt/qc/module.prop 2>/dev/null
+SD_DATA=$D54 SD_MODDIR=/opt/qc sh /opt/qc/service.sh --daemon >/tmp/t54.log 2>&1 &
+D54P=$!
+wait_grep "$D54/log.txt" '收掉并存的 qcmon' 8 "启动时收掉并存的 qcmon"
+wait_dead "$F54" 3
+kill -0 "$F54" 2>/dev/null && ng "并存的 qcmon 还活着(pid=$F54)" || ok "并存的 qcmon 已退出"
+kill -TERM "$D54P" 2>/dev/null; wait_dead "$D54P"
+sed -i "s/^channel=.*/channel=${_oc54:-shell}/" /opt/qc/module.prop 2>/dev/null
+
+# ---------------------------------------------------------------- T55 旧守护让位
+# 覆盖模块文件不会重启已经起来的进程。3.1.14 的 PLG110 现场就是「装的 3.1.14、
+# 跑的是 3.1.11」：boot 段看到 cmdline 里有 service.sh 就跳过，修了三个版本的东西
+# 一条没生效，用户对着旧行为报了半个月的「功率上不去」。
+D55=/data/adb/qc-g55; rm -rf "$D55"; mkdir -p "$D55"
+printf 'temp_mode=off\nlog_level=1\ntick=5\ndefrev=3\n' >"$D55/state.conf"
+SD_DATA=$D55 SD_MODDIR=/opt/qc sh /opt/qc/service.sh --daemon >/tmp/t55a.log 2>&1 &
+P55=$!
+_i=0; while [ ! -s "$D55/run/daemon.pid" ] && [ "$_i" -lt 60 ]; do sleep 0.1; _i=$((_i + 1)); done
+[ -s "$D55/run/daemon.ver" ] && ok "守护启动时写下 daemon.ver" || ng "没有 daemon.ver（无法判断跑的是不是这份）"
+# pid 文件在 wait_boot 之前就写了，指纹行在之后 —— 要等，不能立刻断言
+wait_grep "$D55/log.txt" "代码指纹 service.sh=" 10 "守护启动日志带指纹"
+
+# 指纹一致时不能误杀：boot 段重跑一遍，旧守护必须继续活着
+# （boot 段的 sd_dump_env 才是「包是哪份」的那条，也是旧版缺失的那条）
+SD_DATA=$D55 SD_MODDIR=/opt/qc sh /opt/qc/service.sh >/tmp/t55b.log 2>&1
+sleep 0.3
+wait_grep "$D55/log.txt" 'env\] 代码指纹' 5 "boot 段的 env 里也有指纹"
+kill -0 "$P55" 2>/dev/null && ok "指纹一致时不动守护" || ng "指纹一致却把守护杀了"
+hasnt "$(cat "$D55/log.txt" 2>/dev/null)" "跑的不是磁盘上这份代码" "一致时不报换人"
+
+# 没有 daemon.ver = 那份守护是 3.1.14 或更早起的，按旧代码处理：换掉、重新拉起
+rm -f "$D55/run/daemon.ver"
+SD_DATA=$D55 SD_MODDIR=/opt/qc sh /opt/qc/service.sh >/tmp/t55c.log 2>&1
+wait_dead "$P55" 6
+kill -0 "$P55" 2>/dev/null && ng "旧守护没让位(pid=$P55)" || ok "旧守护已让位"
+has "$(cat "$D55/log.txt" 2>/dev/null)" "跑的不是磁盘上这份代码" "日志写明换人的理由"
+_new55=$(cat "$D55/run/daemon.pid" 2>/dev/null)
+if [ -n "$_new55" ] && [ "$_new55" != "$P55" ]; then
+    ok "已拉起新守护(pid=$_new55)"
+else
+    ng "旧守护走了，新的没起来(pid=${_new55:-空})"
+fi
+[ -s "$D55/run/daemon.ver" ] && ok "新守护重新写下 daemon.ver" || ng "新守护没写 daemon.ver"
+[ -n "$_new55" ] && { kill -TERM "$_new55" 2>/dev/null; wait_dead "$_new55"; }
+
+# ---------------------------------------------------------------- T56 平台认对后候选表重算
+# _sd_curr_prepare 只填一次，第一次填的时候 plat 若还是 other，MTK 那 5 个候选
+# 就永久缺失 —— 8 次重试看着在，实际被缓存让成了空转。
+_pl56=$(SD_DATA=/tmp/qc56 SD_MODDIR=/opt/qc sh -c '
+getprop() { case "$1" in *) echo "" ;; esac; }
+. /opt/qc/lib/qc.sh
+sd_plat_resolve; _sd_curr_prepare
+a=$(printf "%s" "$_sd_curr_nodes" | wc -w | tr -d " ")
+getprop() { case "$1" in ro.soc.manufacturer) echo MediaTek ;; ro.board.platform) echo mt6993 ;; ro.hardware) echo mt6993 ;; *) echo "" ;; esac; }
+sd_plat_resolve; _sd_curr_prepare
+b=$(printf "%s" "$_sd_curr_nodes" | wc -w | tr -d " ")
+printf "%s %s" "$a" "$b"' 2>/dev/null)
+eq "${_pl56#* }" "15" "平台从 other 认成 MTK 后候选表重算（10 → 15）"
 
 # 失败清单放在最后统一列一遍：滚动日志里翻不到的那几条，这里能一次看全
 if [ "$FAIL" -gt 0 ]; then
