@@ -1,45 +1,47 @@
-# Quick Charge v3.1.15-c
+# Quick Charge v3.1.16-c
 
-C 守护版。业务逻辑与 shell 版同源同测试，这一版只有一件事：**让你确定自己跑的是装上的那份代码**。
+这一版把「模块不生效」这一类问题，从**只能猜**变成**日志里直接看得到**。
 
-3.1.14 的验收报告带了一份 PLG110 现场日志：装的 3.1.14，跑的是 3.1.11。旧守护在文件被覆盖后
-一直没退，boot 段看到它活着就跳过，3.1.13 与 3.1.14 的修复在这台机器上一条都没生效。
+3.1.15 之后一加 15 的现场日志显示：装的是 3.1.15-c、跑的也是 3.1.15-c，指纹对得上，
+用户却仍然「完全不生效」。原因不在版本——那次开机 `post-fs-data` 根本没执行，而模块
+没有留下任何能证明这一点的痕迹；同时挂载存活检查把「覆盖层和系统文件内容相同」当成
+「还挂着」，于是「改写没产生效果」被伪装成了「一切正常」。
 
-## 旧守护让位
+## post-fs-data 失败可观测
 
-`sd_pid_is_daemon` 只认「cmdline 里有没有 `service.sh`」，认不出「是不是这一份」。现在
-`service.sh` 在 `exec qcmon` 之前把 `service.sh` / `lib/qc.sh` / `bin/qcmon` 三个文件的
-`md5@mtime` 写进 `run/daemon.ver`，boot 段在「守护已在运行，跳过」之前比一次，不一致就
-TERM 旧进程、清锁、重新拉起：
+- 新增 `$SD_DATA/phase.pfs`：`post-fs-data.sh` 在**加载 lib 之前**就用纯 sh 逐阶段写
+  `step=`（`boot` / `zones` / `build` / `mount` / `done`），任何 `exit` 之前都落一笔；
+- `service.sh` 读它：文件缺失或早于本次开机 = 没执行；停在非 `done` = 中途失败或被杀。
+  两种情况都打一条 `W [boot]`，并写明停在哪一步、`argv0`/`cwd` 是什么；
+- `MODDIR` 推导改成多路径探测：`SD_MODDIR` → `/data/adb/modules/quickcharge` →
+  `/data/adb/modules_update/quickcharge` → `$0` 所在目录 → `pwd`，命中 `lib/qc.sh` 即用。
+  管理器用相对路径执行时不再直接 `exit 1` 且无声无息。
 
-```
-W [daemon] 守护(pid=…)跑的不是磁盘上这份代码：<旧> → <新>，收掉重起
-```
+## 覆盖层不再「假装还挂着」
 
-没有 `daemon.ver` 的守护是 3.1.14 或更早起的，同样按旧代码处理。`bin/qcmon` 也算进指纹——
-C 包有只重编二进制的版本，光比脚本会漏。
+- 删掉 `sd_mounts_content_ok` 的「内容相同 = 挂载还在」判定，改为按
+  `/proc/self/mountinfo` 的 root 字段是否落在覆盖层目录下判断；
+- `sd_transform` 改写后与原文件逐字节比对：相同就**不写入覆盖层**，并打
+  `W [override] 改写无差异: <路径>`，汇总行变成「改写 N · 无差异 M · 跳过 K · 失败 J」；
+- `service.sh` 发现 `post-fs-data` 没跑完时，**无条件重建覆盖层再挂**，不再只信存活检查。
 
-## 候选表：平台认对后重算，数量与 shell 对齐
+## 平台判定：shell 与 C 对齐
 
-`curr_prepare` 只填一次表，`plat_resolve` 却专门设计了「`other` 不缓存、最多试 8 次」。
-两者叠在一起就是空转：第一次填表时若还是 `other`，MTK 那 5 个候选永久拿不到。
+- shell 的 `_sd_curr_prepare` 原来在 `sd_plat_resolve` **之前**就早退，导致「表建好之后
+  平台才认对」的情况永远补不上 MTK 那 5 个候选节点。现在每次进来都先探一次；
+- 探测预算从「8 次调用」改成「300 秒时间窗」：`_sd_curr_prepare` 一轮可能被调用多次
+  （`sd_scr_fcc_node` 每轮都调），按次数算的话 8 次在一个 tick 内就烧完，等于没给启动
+  早期留窗口；
+- 重建成功时打一条 `I [charge] 平台已认对（mtk），候选表按新平台重算`，现场能确认它跑了。
 
-- 建表时记 `g_curr_plat`，平台从 `other` 认对就清表重填；
-- `MAXCURR` 从 12 提到 16：13 个候选会被静默截掉最后一个（`mtk-battery`）；
-- 补上 `oplus_chg` 的 virtual 实名路径，候选表变成基础 10 + MTK 5 = 15，与 shell 侧同序同数；
-- 重探周期从每 20 轮改成每 4 轮，与 `service.sh` 的 `cnt % 4` 一致（tick=15s 时是 5 分钟 vs 1 分钟，
-  排查同一件事时两边延迟对不上，很容易误判成版本不同）。
+## 其它
 
-## 零碎
+- C 侧 qcom 关键字补齐 `canoe` / `kalama` / `crow` / `alor`（一加 15 的 SM8850 平台名是
+  `canoe`，之前被认成 `other`，面板显示「其他」）；
+- C 侧 fb 路径改为 `/sys/class/graphics/fb0/blank` 优先，日志不再打印一个不存在的路径；
+- `[env]` 新增 `overrides=N mounts=N nm=bind|nomount alive=yes|no`，覆盖层状态一眼可读；
+- `RELEASE.md` 里「`action.sh` 的 start/restart」改为「`restart`」——没有 `start` 子命令。
 
-- `ua_norm` 的注释还在讲 3.1.13 就删掉的「2.5A 闸」和「去写 0」，改成讲它真正的作用：
-  不归一的话 4A 会被算成 3mA，功率与判重全错。
-- `customize.sh` 删 `bin/` 前加 `[ -f module.prop ]` 前置，缺文件时不再把 C 包自己的
-  二进制删掉。
-
-## 测试
-
-- c-test **102 项**（x86 现编 + 包内 arm64 二进制 + qemu 双跑）；新增 [21]「MTK 候选表 15 个」
-- 单元 95、仿真 641，与 shell 版同一份用例
-- `preflight --full` 全绿：两仓逐字节比对（`tests/sim/run.sh` 这次进了清单）、
-  `3.1.15-c → 3011500` 反算、7 条新守卫
+升级后如果日志首行仍是「清理上一轮日志（post-fs-data 未执行）」，请把
+`su -c 'sh /data/adb/modules/quickcharge/post-fs-data.sh; echo rc=$?'` 的 stderr 发回来，
+现在它会明确告诉你停在哪一步。
